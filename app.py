@@ -2,15 +2,46 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from streamlit_gsheets import GSheetsConnection
+import datetime
 
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st.title("📊 ניהול תיק ומעקב טריידים - 2026")
+st.title("📊 ניהול תיק ומחשבון סיכונים - 2026")
 
-# --- נתוני יסוד לפי TradeStation ---
-initial_value_dec_25 = 44302.55 #
+# --- נתוני יסוד ---
+initial_value_dec_25 = 44302.55
 st.sidebar.header("⚙️ נתוני חשבון")
-available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01, format="%.2f") #
+available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01)
+
+# --- מחשבון גודל פוזיציה חדשה ---
+st.sidebar.divider()
+st.sidebar.subheader("🧮 מחשבון טרייד חדש")
+calc_ticker = st.sidebar.text_input("טיקר למחשבון", value="").strip().upper()
+entry_p = st.sidebar.number_input("מחיר כניסה מתוכנן ($)", min_value=0.0, step=0.1)
+stop_p = st.sidebar.number_input("סטופ לוס מתוכנן ($)", min_value=0.0, step=0.1)
+risk_pct = st.sidebar.slider("סיכון מהתיק (%)", 0.5, 3.0, 1.0, 0.5)
+
+if calc_ticker and entry_p > stop_p:
+    risk_per_share = entry_p - stop_p
+    total_risk_allowed = (available_cash + (initial_value_dec_25)) * (risk_pct / 100)
+    qty_to_buy = int(total_risk_allowed / risk_per_share)
+    total_cost = qty_to_buy * entry_p
+    
+    # בדיקת חוק 3 הימים לפני/אחרי דוח
+    try:
+        s = yf.Ticker(calc_ticker)
+        cal = s.calendar
+        warning = ""
+        if cal is not None and 'Earnings Date' in cal:
+            e_date = cal['Earnings Date'][0].date()
+            days_to_earnings = (e_date - datetime.date.today()).days
+            if -3 <= days_to_earnings <= 3:
+                warning = "⚠️ זהירות: דוח רווחים בטווח של 3 ימים!"
+        
+        st.sidebar.info(f"כמות לקנייה: {qty_to_buy} מניות")
+        st.sidebar.write(f"עלות פוזיציה: ${total_cost:,.2f}")
+        if warning: st.sidebar.warning(warning)
+    except: pass
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -18,113 +49,86 @@ try:
     df_trades = conn.read(ttl="0")
     if df_trades is not None and not df_trades.empty:
         df_trades.columns = df_trades.columns.str.strip()
-        for col in ['Entry_Price', 'Qty', 'Exit_Price', 'PnL']:
+        # ניקוי נתונים
+        for col in ['Entry_Price', 'Qty', 'Exit_Price']:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
-        # הפרדת טריידים
-        closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
+        closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
 
-        # --- משיכת נתונים קבוצתית (מונע שגיאות טעינה) ---
+        # משיכה קבוצתית (מניעת שגיאות MSTR/ZETA/ONDS)
         open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique() if str(t).strip()]
-        
         market_data = {}
         if open_tickers:
-            with st.spinner('מושך נתוני שוק עדכניים...'):
-                # משיכה של כל הטיקרים יחד (הרבה יותר אמין)
-                data_download = yf.download(open_tickers, period="1y", group_by='ticker', progress=False)
-                for ticker in open_tickers:
-                    try:
-                        if len(open_tickers) > 1:
-                            t_hist = data_download[ticker]
-                        else:
-                            t_hist = data_download
-                        
-                        if not t_hist.empty:
-                            market_data[ticker] = {
-                                'curr': t_hist['Close'].iloc[-1],
-                                'ma150': t_hist['Close'].rolling(window=150).mean().iloc[-1],
-                                'hist': t_hist
-                            }
-                    except: continue
+            data_download = yf.download(open_tickers, period="1y", group_by='ticker', progress=False)
+            for t in open_tickers:
+                try:
+                    t_hist = data_download[t] if len(open_tickers) > 1 else data_download
+                    if not t_hist.empty:
+                        market_data[t] = {
+                            'curr': t_hist['Close'].iloc[-1],
+                            'ma150': t_hist['Close'].rolling(window=150).mean().iloc[-1],
+                            'hist': t_hist
+                        }
+                except: continue
 
-        # --- Sidebar: שווי פוזיציות ו-Unrealized P/L ---
+        # Sidebar Live
         market_value_stocks = 0
-        total_unrealized_pnl = 0 
+        total_unrealized_pnl = 0
+        st.sidebar.divider()
+        st.sidebar.subheader("פוזיציות פתוחות")
+        for _, row in open_trades.iterrows():
+            t = str(row['Ticker']).strip().upper()
+            if t in market_data:
+                curr = market_data[t]['curr']
+                pos_val = curr * row['Qty']
+                market_value_stocks += pos_val
+                pnl = (curr - row['Entry_Price']) * row['Qty']
+                total_unrealized_pnl += pnl
+                st.sidebar.write(f"**{t}:** {pos_val:,.2f}$")
+                st.sidebar.write(f":green[▲ +{pnl:,.2f}$]" if pnl >= 0 else f":red[▼ {pnl:,.2f}$]")
 
-        if not open_trades.empty:
-            st.sidebar.divider()
-            st.sidebar.subheader("פוזיציות פתוחות (Live)")
-            for _, row in open_trades.iterrows():
-                t = str(row['Ticker']).strip().upper()
-                if t in market_data:
-                    curr_p = market_data[t]['curr']
-                    pos_val = curr_p * row['Qty']
-                    market_value_stocks += pos_val
-                    pnl_open = (curr_p - row['Entry_Price']) * row['Qty']
-                    total_unrealized_pnl += pnl_open
-                    
-                    st.sidebar.write(f"**{t}:** {pos_val:,.2f}$")
-                    if pnl_open >= 0:
-                        st.sidebar.write(f":green[▲ +{pnl_open:,.2f}$]")
-                    else:
-                        st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
+        # Unrealized P/L נקי
+        st.sidebar.divider()
+        st.sidebar.write("### Unrealized P/L")
+        pnl_color = "green" if total_unrealized_pnl >= 0 else "red"
+        st.sidebar.markdown(f"<h3 style='color:{pnl_color}; margin:0;'>${total_unrealized_pnl:,.2f}</h3>", unsafe_allow_html=True)
 
-            # תצוגת Unrealized P/L נקייה ללא HTML
-            st.sidebar.divider()
-            st.sidebar.write("### Unrealized P/L")
-            if total_unrealized_pnl >= 0:
-                st.sidebar.success(f"${total_unrealized_pnl:,.2f}")
-            else:
-                st.sidebar.error(f"${total_unrealized_pnl:,.2f}")
-
-        # חישוב שווי כולל ודלתא מהפתיחה
-        total_value_now = market_value_stocks + available_cash
-        diff = total_value_now - initial_value_dec_25
-
+        # שווי כולל ודלתא
+        total_val = market_value_stocks + available_cash
+        diff = total_val - initial_value_dec_25
         st.sidebar.divider()
         st.sidebar.write("### שווי תיק כולל")
-        st.sidebar.write(f"## ${total_value_now:,.2f}")
+        st.sidebar.write(f"## ${total_val:,.2f}")
         
-        # תיקון חץ אדום להפסד
-        color = "#ff4b4b" if diff < 0 else "#00c853"
-        icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
-        st.sidebar.markdown(f"""<div style="border: 1px solid {color}; border-radius: 5px; padding: 10px; background-color: rgba(0,0,0,0.05);">
-                <p style="margin: 0; font-size: 14px; color: gray;">{label}</p>
-                <h3 style="margin: 0; color: {color};">{icon} ${abs(diff):,.2f}</h3>
-            </div>""", unsafe_allow_html=True)
+        d_color = "#ff4b4b" if diff < 0 else "#00c853"
+        icon = "▼" if diff < 0 else "▲"
+        label = "הפסד מתחילת השנה" if diff < 0 else "רווח מתחילת השנה"
+        st.sidebar.markdown(f"""<div style="border: 1px solid {d_color}; border-radius: 5px; padding: 10px;">
+            <p style="margin: 0; font-size: 14px; color: gray;">{label}</p>
+            <h3 style="margin: 0; color: {d_color};">{icon} ${abs(diff):,.2f}</h3>
+        </div>""", unsafe_allow_html=True)
 
-        # --- תצוגה מרכזית ---
-        st.header("🔄 ניהול פוזיציות")
-        st.link_button("📂 פתח גיליון גוגל לעדכון", "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit")
-
+        # תצוגה מרכזית
         tab1, tab2 = st.tabs(["🔓 טריידים פתוחים", "🔒 טריידים סגורים"])
         with tab1:
-            st.subheader("פוזיציות פעילות")
             st.dataframe(open_trades, use_container_width=True)
-            st.divider()
-            st.subheader("🔍 תחקור טכני (פוזיציות פתוחות)")
-            
+            st.subheader("🔍 תחקור טכני")
             for t in open_tickers:
                 if t in market_data:
-                    curr = market_data[t]['curr']
-                    ma150 = market_data[t]['ma150']
-                    
+                    d = market_data[t]
                     with st.expander(f"ניתוח {t}"):
                         c1, c2 = st.columns([1, 2])
                         with c1:
-                            if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
-                            else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
-                            st.write(f"**מחיר:** {curr:.2f}$ | **150 MA:** {ma150:.2f}$")
-                        with c2:
-                            st.line_chart(market_data[t]['hist']['Close'].tail(60))
-                else:
-                    st.warning(f"לא ניתן למשוך נתונים עבור {t} כרגע.")
+                            if d['curr'] > d['ma150']: st.success("מעל 150 MA ✅")
+                            else: st.error("מתחת ל-150 MA ❌")
+                            st.write(f"מחיר: {d['curr']:.2f}$ | MA150: {d['ma150']:.2f}$")
+                        with c2: st.line_chart(d['hist']['Close'].tail(60))
 
         with tab2:
-            st.subheader("היסטוריית עסקאות (YTD Loss: $1,916.05)") #
+            st.subheader("היסטוריית עסקאות")
             st.dataframe(closed_trades, use_container_width=True)
 
 except Exception as e:
-    st.error(f"שגיאה בטעינה: {e}")
+    st.error(f"שגיאה: {e}")
