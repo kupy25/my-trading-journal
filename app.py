@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
@@ -30,6 +30,7 @@ try:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
+        # הפרדת טריידים
         closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
 
@@ -56,17 +57,9 @@ try:
                                 st.sidebar.write(f":green[▲ +{pnl_open:,.2f}$]")
                             else:
                                 st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
-                            
-                            # בדיקת יום דוחות
-                            calendar = stock.calendar
-                            if calendar is not None and 'Earnings Date' in calendar:
-                                next_earnings = calendar['Earnings Date'][0]
-                                days_to_earnings = (next_earnings.date() - datetime.now().date()).days
-                                if 0 <= days_to_earnings <= 7:
-                                    earnings_alerts.append(f"⚠️ **{ticker}**: דוח בעוד {days_to_earnings} ימים ({next_earnings.date()})")
                     except: continue
 
-        # שווי כולל ודלתא
+        # חישוב שווי כולל ודלתא
         total_value_now = market_value_stocks + available_cash
         diff = total_value_now - initial_value_dec_25
         
@@ -87,63 +80,50 @@ try:
             unsafe_allow_html=True
         )
 
-        # --- תצוגת התראות דוחות ---
-        if earnings_alerts:
-            st.warning("📅 **שים לב! דוחות מתקרבים:**")
-            for alert in earnings_alerts:
-                st.write(alert)
-
         # --- ממשק מרכזי ---
         st.header("➕ פעולות ועדכון")
         st.link_button("📂 פתח גיליון גוגל (אקסל) לעדכון טריידים", "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit")
 
         tab1, tab2 = st.tabs(["🔓 טריידים פתוחים", "🔒 טריידים סגורים"])
         with tab1:
+            st.subheader("פוזיציות פתוחות בניהול")
             st.dataframe(open_trades, use_container_width=True)
+            
         with tab2:
+            st.subheader("היסטוריית טריידים שמומשו")
             st.dataframe(closed_trades, use_container_width=True)
 
-        # תחקור 150 MA
+        # --- תחקור טכני ולוח דוחות ---
         st.divider()
-        st.subheader("🔍 תחקור טכני (150 MA)")
-        for ticker in open_trades['Ticker'].unique():
-            try:
-                stock = yf.Ticker(str(ticker))
-                hist = stock.history(period="1y")
-                curr = hist['Close'].iloc[-1]
-                ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
-                with st.expander(f"ניתוח {ticker}"):
-                    if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
-                    else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
-                    st.line_chart(hist['Close'].tail(60))
-            except: continue
-
-except Exception as e:
-    st.error(f"שגיאה: {e}")
-    # ... (שאר הקוד נשאר אותו דבר, עד שמגיעים ללשונית התחקור למטה)
-
         st.subheader("🔍 תחקור טכני ולוח דוחות")
         for ticker in open_trades['Ticker'].unique():
+            if pd.isna(ticker) or ticker == "": continue
             try:
                 stock = yf.Ticker(str(ticker))
                 hist = stock.history(period="1y")
-                curr = hist['Close'].iloc[-1]
-                ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
-                
-                # משיכת תאריך דוח
-                calendar = stock.calendar
-                earnings_date = "אין נתונים"
-                if calendar is not None and 'Earnings Date' in calendar:
-                    earnings_date = calendar['Earnings Date'][0].date()
+                if not hist.empty:
+                    curr = hist['Close'].iloc[-1]
+                    ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
+                    
+                    # משיכת תאריך דוח
+                    calendar = stock.calendar
+                    earnings_date = "אין נתונים"
+                    if calendar is not None and 'Earnings Date' in calendar:
+                        earnings_date = calendar['Earnings Date'][0].date()
 
-                with st.expander(f"ניתוח {ticker} | דוח קרוב: {earnings_date}"):
-                    col1, col2 = st.columns([1, 2])
-                    with col1:
-                        if curr > ma150: st.success("מעל 150 MA ✅")
-                        else: st.error("מתחת ל-150 MA ❌")
-                        st.write(f"**מחיר:** {curr:.2f}$")
-                        st.write(f"**ממוצע 150:** {ma150:.2f}$")
-                        st.write(f"📅 **דוח הבא:** {earnings_date}")
-                    with col2:
-                        st.line_chart(hist['Close'].tail(60))
+                    with st.expander(f"ניתוח {ticker} | דוח קרוב: {earnings_date}"):
+                        c1, c2 = st.columns([1, 2])
+                        with c1:
+                            if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
+                            else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
+                            st.write(f"**מחיר:** {curr:.2f}$")
+                            st.write(f"**ממוצע 150:** {ma150:.2f}$")
+                            st.write(f"📅 **דוח הבא:** {earnings_date}")
+                        with c2:
+                            st.line_chart(hist['Close'].tail(60))
             except: continue
+    else:
+        st.info("הגיליון ריק. הוסף טריידים בגיליון גוגל.")
+
+except Exception as e:
+    st.error(f"שגיאה בטעינה: {e}")
