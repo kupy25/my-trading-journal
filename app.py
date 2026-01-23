@@ -7,11 +7,11 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
-# --- הגדרות הון ומזומן (Sidebar) ---
+# --- הגדרות הון ומזומן ---
 st.sidebar.header("⚙️ ניהול מזומן והון")
-initial_total_value = 44302.55 # השווי ב-31.12.2025 לפי Tradestation
+initial_total_value = 44302.55 # שווי ב-31.12.2025
 
-# שדה להזנת מזומן פנוי בתיק
+# שדה להזנת מזומן פנוי
 available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5000.0, step=100.0)
 
 # חיבור ל-Google Sheets
@@ -20,16 +20,18 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 try:
     df_trades = conn.read(ttl="0")
     
-    if df_trades is not None:
+    if df_trades is not None and not df_trades.empty:
         df_trades.columns = df_trades.columns.str.strip()
+        
+        # המרת עמודות למספרים
         for col in ['Entry_Price', 'Qty', 'Exit_Price', 'PnL']:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
-        # חישוב שווי המניות הפתוחות "על הנייר"
         stock_value_on_paper = 0
-        total_realized_pnl = df_trades[df_trades['Exit_Price'] > 0]['PnL'].sum()
+        total_unrealized_pnl = 0
         
+        # חישוב פוזיציות פתוחות
         open_trades = df_trades[df_trades['Exit_Price'] == 0]
         if not open_trades.empty:
             st.sidebar.divider()
@@ -39,22 +41,24 @@ try:
                 if ticker and ticker != 'nan' and ticker != "":
                     try:
                         stock = yf.Ticker(ticker)
-                        curr_price = stock.history(period="1d")['Close'].iloc[-1]
-                        current_pos_value = curr_price * row['Qty']
-                        stock_value_on_paper += current_pos_value
-                        
-                        pnl_open = (curr_price - row['Entry_Price']) * row['Qty']
-                        color = "green" if pnl_open >= 0 else "red"
-                        st.sidebar.markdown(f"**{ticker}:** {current_pos_value:,.2f}$ (<span style='color:{color}'>{pnl_open:+.2f}$</span>)", unsafe_allow_html=True)
+                        # משיכת מחיר אחרון
+                        ticker_data = stock.history(period="1d")
+                        if not ticker_data.empty:
+                            curr_price = ticker_data['Close'].iloc[-1]
+                            current_pos_value = curr_price * row['Qty']
+                            stock_value_on_paper += current_pos_value
+                            
+                            pnl_open = (curr_price - row['Entry_Price']) * row['Qty']
+                            color = "green" if pnl_open >= 0 else "red"
+                            st.sidebar.markdown(f"**{ticker}:** {current_pos_value:,.2f}$ (<span style='color:{color}'>{pnl_open:+.2f}$</span>)", unsafe_allow_html=True)
                     except:
                         continue
 
-        # --- חישוב שווי תיק כולל ---
+        # חישוב שווי תיק כולל
         total_portfolio_value = stock_value_on_paper + available_cash
         diff_from_start = total_portfolio_value - initial_total_value
         
         st.sidebar.divider()
-        # תצוגת שווי כולל (מניות + מזומן)
         st.sidebar.metric(
             label="שווי תיק כולל (Cash + Stocks)", 
             value=f"${total_portfolio_value:,.2f}", 
@@ -62,14 +66,12 @@ try:
             delta_color="normal" if diff_from_start >= 0 else "inverse"
         )
         
-        # פירוט נוסף ב-Sidebar
-        st.sidebar.write(f"📈 שווי מניות על הנייר: ${stock_value_on_paper:,.2f}")
+        st.sidebar.write(f"📈 שווי מניות (Market): ${stock_value_on_paper:,.2f}")
         st.sidebar.write(f"💵 מזומן פנוי: ${available_cash:,.2f}")
 
-        # --- ממשק מרכזי ---
+        # ממשק פעולות
         st.header("➕ פעולות")
-        url = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit"
-        st.link_button("עדכן טריידים בגיליון גוגל", url)
+        st.link_button("עדכן טריידים בגיליון גוגל", "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit")
 
         # טבלת טריידים
         st.subheader("🗂️ יומן טריידים")
@@ -81,4 +83,25 @@ try:
         for ticker in unique_tickers:
             try:
                 stock = yf.Ticker(str(ticker))
-                hist = stock.history(period
+                hist = stock.history(period="1y")
+                if not hist.empty:
+                    curr = hist['Close'].iloc[-1]
+                    ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
+                    
+                    with st.expander(f"ניתוח {ticker}"):
+                        c1, c2 = st.columns([1, 2])
+                        with c1:
+                            if curr > ma150:
+                                st.success("מעל 150 MA ✅")
+                            else:
+                                st.error("מתחת ל-150 MA ❌")
+                            st.write(f"מחיר: {curr:.2f}$ | ממוצע: {ma150:.2f}$")
+                        with c2:
+                            st.line_chart(hist['Close'].tail(60))
+            except:
+                continue
+    else:
+        st.info("הגיליון ריק. הוסף טריידים בגיליון גוגל.")
+
+except Exception as e:
+    st.error(f"שגיאה במערכת: {e}")
