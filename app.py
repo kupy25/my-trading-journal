@@ -7,11 +7,12 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
-# --- הגדרות הון ומזומן (Sidebar) ---
+# --- הגדרות הון ומזומן ---
 st.sidebar.header("⚙️ ניהול מזומן והון")
-initial_total_value = 44302.55 # שווי ב-31.12.2025 לפי TradeStation
+# שווי ב-31.12.2025 לפי הצילום שצירפת
+initial_total_value = 44302.55 
 
-# שדה מזומן מדויק עם שתי ספרות עשרוניות
+# הגדרת המזומן המדויק שלך כברירת מחדל
 available_cash = st.sidebar.number_input(
     "מזומן פנוי בחשבון ($)", 
     value=5732.40, 
@@ -32,9 +33,8 @@ try:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
         stock_value_on_paper = 0
-        total_unrealized_pnl = 0
         
-        # חישוב שווי פוזיציות פתוחות
+        # חישוב פוזיציות פתוחות
         open_trades = df_trades[df_trades['Exit_Price'] == 0]
         if not open_trades.empty:
             st.sidebar.divider()
@@ -52,13 +52,12 @@ try:
                             
                             pnl_open = (curr_price - row['Entry_Price']) * row['Qty']
                             
-                            # תיקון תצוגת הצבעים ב-Sidebar
-                            label = f"**{ticker}:** {current_pos_value:,.2f}$"
-                            st.sidebar.write(label)
+                            # תצוגת פוזיציות בסידבר ללא תגיות HTML
+                            st.sidebar.write(f"**{ticker}:** {current_pos_value:,.2f}$")
                             if pnl_open >= 0:
-                                st.sidebar.caption(f":green[+{pnl_open:,.2f}$]")
+                                st.sidebar.write(f":green[▲ +{pnl_open:,.2f}$]")
                             else:
-                                st.sidebar.caption(f":red[{pnl_open:,.2f}$]")
+                                st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
                     except:
                         continue
 
@@ -67,11 +66,12 @@ try:
         diff_from_start = total_portfolio_value - initial_total_value
         
         st.sidebar.divider()
+        # תיקון החץ: השתמשתי ב-delta_color="normal" כדי שהחץ יסתדר לפי הערך (חיובי=למעלה, שלילי=למטה)
         st.sidebar.metric(
             label="שווי תיק כולל (Cash + Stocks)", 
             value=f"${total_portfolio_value:,.2f}", 
             delta=f"${diff_from_start:,.2f}",
-            delta_color="normal" if diff_from_start >= 0 else "inverse"
+            delta_color="normal" 
         )
         
         st.sidebar.write(f"📈 שווי מניות (Market): ${stock_value_on_paper:,.2f}")
