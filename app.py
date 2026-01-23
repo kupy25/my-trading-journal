@@ -48,22 +48,21 @@ try:
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
         closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
 
-        # משיכה קבוצתית (פתרון ל-MSTR, ZETA, ONDS)
+        # משיכה קבוצתית
         open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique()]
         market_data = {}
         if open_tickers:
-            with st.spinner('מעדכן נתונים...'):
-                data_dl = yf.download(open_tickers, period="1y", group_by='ticker', progress=False)
-                for t in open_tickers:
-                    try:
-                        t_hist = data_dl[t] if len(open_tickers) > 1 else data_dl
-                        if not t_hist.empty:
-                            market_data[t] = {
-                                'curr': t_hist['Close'].iloc[-1],
-                                'ma150': t_hist['Close'].rolling(window=150).mean().iloc[-1],
-                                'hist': t_hist
-                            }
-                    except: continue
+            data_dl = yf.download(open_tickers, period="1y", group_by='ticker', progress=False)
+            for t in open_tickers:
+                try:
+                    t_hist = data_dl[t] if len(open_tickers) > 1 else data_dl
+                    if not t_hist.empty:
+                        market_data[t] = {
+                            'curr': t_hist['Close'].iloc[-1],
+                            'ma150': t_hist['Close'].rolling(window=150).mean().iloc[-1],
+                            'hist': t_hist
+                        }
+                except: continue
 
         # --- Sidebar: פוזיציות וצבעים ---
         market_value_stocks = 0
@@ -103,7 +102,7 @@ try:
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"<div style='border: 1px solid {d_color}; padding: 10px; border-radius: 5px;'><p style='margin:0; color:gray;'>{label}</p><h3 style='margin:0; color:{d_color};'>{icon} ${abs(diff):,.2f}</h3></div>", unsafe_allow_html=True)
 
-        # --- הוספת גרף עוגה (Pie Chart) בסידבר ---
+        # --- הוספת גרף עוגה עם לייבלים ---
         st.sidebar.divider()
         st.sidebar.subheader("📊 התפלגות הון")
         fig_pie = px.pie(
@@ -113,12 +112,15 @@ try:
             hole=0.4,
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        fig_pie.update_layout(margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
+        # עדכון הלייבלים שיופיעו על הגרף
+        fig_pie.update_traces(textinfo='label+percent', textposition='inside')
+        fig_pie.update_layout(margin=dict(l=0, r=0, t=10, b=10), showlegend=False)
         st.sidebar.plotly_chart(fig_pie, use_container_width=True)
 
         # --- תצוגה מרכזית ---
         tab1, tab2 = st.tabs(["🔓 טריידים פתוחים", "🔒 טריידים סגורים"])
         with tab1:
+            st.subheader("פוזיציות פעילות")
             st.dataframe(open_trades, use_container_width=True)
             st.subheader("🔍 תחקור טכני 150 MA")
             for t in open_tickers:
