@@ -4,13 +4,12 @@ import yfinance as yf
 from streamlit_gsheets import GSheetsConnection
 import plotly.express as px
 import datetime
-import time
 
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק והתפלגות נכסים - 2026")
 
-# --- נתוני יסוד לפי TradeStation ---
+# --- נתוני יסוד ---
 initial_value_dec_25 = 44302.55
 st.sidebar.header("⚙️ נתוני חשבון")
 available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01)
@@ -26,15 +25,12 @@ risk_pct = st.sidebar.slider("סיכון מהתיק (%)", 0.25, 2.0, 1.0, 0.25)
 if calc_ticker and entry_p > stop_p:
     money_at_risk = initial_value_dec_25 * (risk_pct / 100)
     risk_per_share = entry_p - stop_p
-    qty_by_risk = int(money_at_risk / risk_per_share)
-    qty_by_cash = int(available_cash / entry_p)
-    final_qty = min(qty_by_risk, qty_by_cash)
+    final_qty = min(int(money_at_risk / risk_per_share), int(available_cash / entry_p))
     if final_qty > 0:
         st.sidebar.success(f"✅ כמות לקנייה: {final_qty} מניות")
         st.sidebar.write(f"💰 עלות: ${final_qty * entry_p:,.2f}")
     else: st.sidebar.error("אין מספיק מזומן פנוי!")
 
-# חיבור לנתונים
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
@@ -64,7 +60,7 @@ try:
                         }
                 except: continue
 
-        # --- Sidebar: פוזיציות וצבעים ---
+        # --- Sidebar: פוזיציות ונתונים ---
         market_value_stocks = 0
         total_unrealized_pnl = 0
         pie_data = [{"Asset": "Cash", "Value": available_cash}]
@@ -80,18 +76,13 @@ try:
                 pnl = (curr - row['Entry_Price']) * row['Qty']
                 total_unrealized_pnl += pnl
                 pie_data.append({"Asset": t, "Value": pos_val})
-                
                 st.sidebar.write(f"**{t}:** {pos_val:,.2f}$")
-                color = "#00c853" if pnl >= 0 else "#ff4b4b"
-                st.sidebar.markdown(f"<p style='color:{color}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
+                st.sidebar.markdown(f"<p style='color:{'#00c853' if pnl >= 0 else '#ff4b4b'}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
 
-        # Unrealized P/L
         st.sidebar.divider()
-        un_color = "#00c853" if total_unrealized_pnl >= 0 else "#ff4b4b"
         st.sidebar.write("### Unrealized P/L")
-        st.sidebar.markdown(f"<h3 style='color:{un_color}; margin:0;'>${total_unrealized_pnl:,.2f}</h3>", unsafe_allow_html=True)
+        st.sidebar.markdown(f"<h3 style='color:{'#00c853' if total_unrealized_pnl >= 0 else '#ff4b4b'}; margin:0;'>${total_unrealized_pnl:,.2f}</h3>", unsafe_allow_html=True)
 
-        # שווי כולל
         total_val = market_value_stocks + available_cash
         diff = total_val - initial_value_dec_25
         st.sidebar.divider()
@@ -102,26 +93,30 @@ try:
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"<div style='border: 1px solid {d_color}; padding: 10px; border-radius: 5px;'><p style='margin:0; color:gray;'>{label}</p><h3 style='margin:0; color:{d_color};'>{icon} ${abs(diff):,.2f}</h3></div>", unsafe_allow_html=True)
 
-        # --- הוספת גרף עוגה עם לייבלים ---
-        st.sidebar.divider()
-        st.sidebar.subheader("📊 התפלגות הון")
-        fig_pie = px.pie(
-            pd.DataFrame(pie_data), 
-            values='Value', 
-            names='Asset', 
-            hole=0.4,
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        # עדכון הלייבלים שיופיעו על הגרף
-        fig_pie.update_traces(textinfo='label+percent', textposition='inside')
-        fig_pie.update_layout(margin=dict(l=0, r=0, t=10, b=10), showlegend=False)
-        st.sidebar.plotly_chart(fig_pie, use_container_width=True)
-
         # --- תצוגה מרכזית ---
         tab1, tab2 = st.tabs(["🔓 טריידים פתוחים", "🔒 טריידים סגורים"])
+        
         with tab1:
             st.subheader("פוזיציות פעילות")
             st.dataframe(open_trades, use_container_width=True)
+            
+            # --- הגרף במרכז הדף ---
+            st.divider()
+            col_a, col_b, col_c = st.columns([1, 2, 1])
+            with col_b:
+                st.subheader("📊 התפלגות נכסים בתיק", anchor=False)
+                fig_pie = px.pie(
+                    pd.DataFrame(pie_data), 
+                    values='Value', 
+                    names='Asset', 
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                fig_pie.update_traces(textinfo='label+percent+value', textposition='outside', texttemplate='%{label}<br>%{percent}<br>$%{value:,.0f}')
+                fig_pie.update_layout(showlegend=True, height=500)
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            st.divider()
             st.subheader("🔍 תחקור טכני 150 MA")
             for t in open_tickers:
                 if t in market_data:
