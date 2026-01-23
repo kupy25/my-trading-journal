@@ -46,7 +46,7 @@ try:
                             pnl_open = (curr_p - row['Entry_Price']) * row['Qty']
                             total_unrealized_pnl += pnl_open
                             
-                            # תצוגה נקייה ללא HTML
+                            # תצוגה נקייה בסידבר ללא תגיות HTML
                             st.sidebar.write(f"**{ticker}:** {pos_val:,.2f}$")
                             if pnl_open >= 0:
                                 st.sidebar.write(f":green[▲ +{pnl_open:,.2f}$]")
@@ -54,7 +54,7 @@ try:
                                 st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
                     except: continue
 
-            # Unrealized P/L
+            # תצוגת Unrealized P/L נקייה
             st.sidebar.divider()
             un_color = "green" if total_unrealized_pnl >= 0 else "red"
             st.sidebar.write("### Unrealized P/L")
@@ -68,7 +68,7 @@ try:
         st.sidebar.write("### שווי תיק כולל")
         st.sidebar.write(f"## ${total_value_now:,.2f}")
         
-        # תיקון החץ והצבע
+        # תיקון החץ והצבע לאדום במקרה של הפסד
         color = "#ff4b4b" if diff < 0 else "#00c853"
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"""<div style="border: 1px solid {color}; border-radius: 5px; padding: 10px; background-color: rgba(0,0,0,0.05);">
@@ -87,10 +87,11 @@ try:
             st.divider()
             st.subheader("🔍 תחקור טכני ולוח דוחות (פוזיציות פתוחות)")
             
+            # לוגיקת תחקור עמידה יותר לכל המניות
             for _, row in open_trades.iterrows():
                 ticker = str(row['Ticker']).strip().upper()
                 try:
-                    # משיכת נתונים עם השהייה למניעת חסימות
+                    # משיכת נתונים עם השהייה קלה למניעת שגיאות טעינה
                     stock = yf.Ticker(ticker)
                     hist = stock.history(period="1y")
                     if not hist.empty:
@@ -104,14 +105,16 @@ try:
                         with st.expander(f"ניתוח {ticker} | דוח: {e_date}"):
                             c1, c2 = st.columns([1, 2])
                             with c1:
-                                if curr > ma150: st.success("מגמה חיובית ✅")
-                                else: st.error("מגמה שלילית ❌")
+                                if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
+                                else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
                                 st.write(f"**מחיר:** {curr:.2f}$ | **150 MA:** {ma150:.2f}$")
                                 st.write(f"📅 **דוח:** {e_date}")
                             with c2: st.line_chart(hist['Close'].tail(60))
                         time.sleep(0.3) 
+                    else:
+                        st.warning(f"ממתין לנתונים עבור {ticker}...")
                 except: 
-                    st.write(f"שגיאת טעינה עבור {ticker}")
+                    st.write(f"שגיאת טעינה זמנית עבור {ticker}. נסה לרענן.")
                     continue
 
         with tab2:
@@ -119,4 +122,4 @@ try:
             st.dataframe(closed_trades, use_container_width=True)
 
 except Exception as e:
-    st.error(f"שגיאה בטעינת הנתונים: {e}")
+    st.error(f"שגיאה: {e}")
