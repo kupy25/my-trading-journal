@@ -7,12 +7,17 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
-# --- הגדרות הון ומזומן ---
+# --- הגדרות הון ומזומן (Sidebar) ---
 st.sidebar.header("⚙️ ניהול מזומן והון")
-initial_total_value = 44302.55 # שווי ב-31.12.2025
+initial_total_value = 44302.55 # שווי ב-31.12.2025 לפי TradeStation
 
-# שדה להזנת מזומן פנוי
-available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5000.0, step=100.0)
+# שדה מזומן מדויק עם שתי ספרות עשרוניות
+available_cash = st.sidebar.number_input(
+    "מזומן פנוי בחשבון ($)", 
+    value=5732.40, 
+    step=0.01, 
+    format="%.2f"
+)
 
 # חיבור ל-Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -22,8 +27,6 @@ try:
     
     if df_trades is not None and not df_trades.empty:
         df_trades.columns = df_trades.columns.str.strip()
-        
-        # המרת עמודות למספרים
         for col in ['Entry_Price', 'Qty', 'Exit_Price', 'PnL']:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
@@ -31,7 +34,7 @@ try:
         stock_value_on_paper = 0
         total_unrealized_pnl = 0
         
-        # חישוב פוזיציות פתוחות
+        # חישוב שווי פוזיציות פתוחות
         open_trades = df_trades[df_trades['Exit_Price'] == 0]
         if not open_trades.empty:
             st.sidebar.divider()
@@ -41,7 +44,6 @@ try:
                 if ticker and ticker != 'nan' and ticker != "":
                     try:
                         stock = yf.Ticker(ticker)
-                        # משיכת מחיר אחרון
                         ticker_data = stock.history(period="1d")
                         if not ticker_data.empty:
                             curr_price = ticker_data['Close'].iloc[-1]
@@ -49,8 +51,14 @@ try:
                             stock_value_on_paper += current_pos_value
                             
                             pnl_open = (curr_price - row['Entry_Price']) * row['Qty']
-                            color = "green" if pnl_open >= 0 else "red"
-                            st.sidebar.markdown(f"**{ticker}:** {current_pos_value:,.2f}$ (<span style='color:{color}'>{pnl_open:+.2f}$</span>)", unsafe_allow_html=True)
+                            
+                            # תיקון תצוגת הצבעים ב-Sidebar
+                            label = f"**{ticker}:** {current_pos_value:,.2f}$"
+                            st.sidebar.write(label)
+                            if pnl_open >= 0:
+                                st.sidebar.caption(f":green[+{pnl_open:,.2f}$]")
+                            else:
+                                st.sidebar.caption(f":red[{pnl_open:,.2f}$]")
                     except:
                         continue
 
@@ -74,7 +82,7 @@ try:
         st.link_button("עדכן טריידים בגיליון גוגל", "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit")
 
         # טבלת טריידים
-        st.subheader("🗂️ יומן טריידים")
+        st.subheader("🗂️ יומן טריידים מלא")
         st.dataframe(df_trades, use_container_width=True)
 
         # תחקור טכני
