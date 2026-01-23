@@ -13,36 +13,29 @@ initial_value_dec_25 = 44302.55 # שווי ב-31.12.25
 st.sidebar.header("⚙️ נתוני חשבון")
 available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01)
 
-# --- מחשבון גודל פוזיציה מתוקן ---
+# --- מחשבון גודל פוזיציה מוגן מזומן ---
 st.sidebar.divider()
 st.sidebar.subheader("🧮 מחשבון טרייד חדש")
 calc_ticker = st.sidebar.text_input("טיקר לבדיקה", value="").strip().upper()
-entry_p = st.sidebar.number_input("מחיר כניסה ($)", min_value=0.0, value=0.0, step=0.01)
-stop_p = st.sidebar.number_input("סטופ לוס ($)", min_value=0.0, value=0.0, step=0.01)
+entry_p = st.sidebar.number_input("מחיר כניסה ($)", min_value=0.0, step=0.01)
+stop_p = st.sidebar.number_input("סטופ לוס ($)", min_value=0.0, step=0.01)
 risk_pct = st.sidebar.slider("סיכון מהתיק (%)", 0.25, 2.0, 1.0, 0.25)
 
 if calc_ticker and entry_p > stop_p:
-    # חישוב סיכון כספי מותר (1% מתוך שווי התיק הכולל)
-    # הערכה לשווי תיק נוכחי לטובת חישוב סיכון
     money_at_risk = initial_value_dec_25 * (risk_pct / 100)
     risk_per_share = entry_p - stop_p
     
-    # כמות מניות לפי סיכון
     qty_by_risk = int(money_at_risk / risk_per_share)
-    # כמות מניות לפי מזומן פנוי (לא ניתן לקנות יותר ממה שיש בקופה)
     qty_by_cash = int(available_cash / entry_p)
     
-    # הכמות הסופית היא הנמוכה מבין השתיים
     final_qty = min(qty_by_risk, qty_by_cash)
     total_cost = final_qty * entry_p
     
     if final_qty > 0:
         st.sidebar.success(f"✅ כמות לקנייה: {final_qty} מניות")
         st.sidebar.write(f"💰 עלות כוללת: ${total_cost:,.2f}")
-        if final_qty == qty_by_cash:
-            st.sidebar.warning("⚠️ הכמות מוגבלת לפי המזומן הפנוי שלך")
     else:
-        st.sidebar.error("אין מספיק מזומן לביצוע הטרייד")
+        st.sidebar.error("אין מספיק מזומן פנוי!")
 
 # חיבור לנתונים
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -51,35 +44,35 @@ try:
     df_trades = conn.read(ttl="0")
     if df_trades is not None and not df_trades.empty:
         df_trades.columns = df_trades.columns.str.strip()
-        for col in ['Entry_Price', 'Qty', 'Exit_Price', 'PnL']:
+        for col in ['Entry_Price', 'Qty', 'Exit_Price']:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
         closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
 
-        # משיכה קבוצתית יציבה (למניעת שגיאות טעינה)
-        open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique() if str(t).strip()]
+        # משיכה קבוצתית למניעת שגיאות MSTR/ZETA
+        open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique()]
         market_data = {}
         if open_tickers:
-            with st.spinner('מעדכן נתוני שוק...'):
-                data_dl = yf.download(open_tickers, period="1y", group_by='ticker', progress=False)
-                for t in open_tickers:
-                    try:
-                        t_hist = data_dl[t] if len(open_tickers) > 1 else data_dl
-                        if not t_hist.empty:
-                            market_data[t] = {
-                                'curr': t_hist['Close'].iloc[-1],
-                                'ma150': t_hist['Close'].rolling(window=150).mean().iloc[-1],
-                                'hist': t_hist
-                            }
-                    except: continue
+            data_dl = yf.download(open_tickers, period="1y", group_by='ticker', progress=False)
+            for t in open_tickers:
+                try:
+                    t_hist = data_dl[t] if len(open_tickers) > 1 else data_dl
+                    if not t_hist.empty:
+                        market_data[t] = {
+                            'curr': t_hist['Close'].iloc[-1],
+                            'ma150': t_hist['Close'].rolling(window=150).mean().iloc[-1],
+                            'hist': t_hist
+                        }
+                except: continue
 
-        # Sidebar - פוזיציות ו-Unrealized P/L
+        # --- Sidebar: פוזיציות עם תיקון צבעים (Markdown) ---
         market_value_stocks = 0
         total_unrealized_pnl = 0
         st.sidebar.divider()
         st.sidebar.subheader("פוזיציות פתוחות")
+        
         for _, row in open_trades.iterrows():
             t = str(row['Ticker']).strip().upper()
             if t in market_data:
@@ -88,14 +81,19 @@ try:
                 market_value_stocks += pos_val
                 pnl = (curr - row['Entry_Price']) * row['Qty']
                 total_unrealized_pnl += pnl
-                st.sidebar.write(f"**{t}:** {pos_val:,.2f}$ | :{'green' if pnl >= 0 else 'red'}[{pnl:,.2f}$]")
+                
+                # תצוגה נקייה ללא קוד חשוף
+                st.sidebar.write(f"**{t}:** {pos_val:,.2f}$")
+                color = "#00c853" if pnl >= 0 else "#ff4b4b"
+                sign = "+" if pnl >= 0 else ""
+                st.sidebar.markdown(f"<p style='color:{color}; margin-top:-15px;'>{sign}{pnl:,.2f}$</p>", unsafe_allow_html=True)
 
+        # Unrealized P/L ושווי תיק
         st.sidebar.divider()
-        st.sidebar.write("### Unrealized P/L")
         un_color = "#00c853" if total_unrealized_pnl >= 0 else "#ff4b4b"
+        st.sidebar.write("### Unrealized P/L")
         st.sidebar.markdown(f"<h3 style='color:{un_color}; margin:0;'>${total_unrealized_pnl:,.2f}</h3>", unsafe_allow_html=True)
 
-        # שווי תיק כולל ודלתא
         total_val = market_value_stocks + available_cash
         diff = total_val - initial_value_dec_25
         st.sidebar.divider()
@@ -106,7 +104,7 @@ try:
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"<div style='border: 1px solid {d_color}; padding: 10px; border-radius: 5px;'><p style='margin:0; color:gray;'>{label}</p><h3 style='margin:0; color:{d_color};'>{icon} ${abs(diff):,.2f}</h3></div>", unsafe_allow_html=True)
 
-        # ממשק מרכזי
+        # לשוניות תצוגה
         tab1, tab2 = st.tabs(["🔓 טריידים פתוחים", "🔒 טריידים סגורים"])
         with tab1:
             st.dataframe(open_trades, use_container_width=True)
