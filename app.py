@@ -1,54 +1,83 @@
 import streamlit as st
 import pandas as pd
+import yfinance as yf
+from streamlit_gsheets import GSheetsConnection
+from datetime import datetime
 
-# הגדרות האתר
+# הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 יומן מסחר ותחקור - 2026")
 
-# --- נתוני הטריידים המעודכנים (כאן אנחנו מבטיחים שהם יופיעו) ---
-initial_trades = [
-    {"Ticker": "SEDG", "Entry Date": "2026-01-05", "Entry Price": 32.92, "Qty": 174, "Exit Price": 30.45, "P&L": -430.87, "Reason": "תחקיר נדרש"},
-    {"Ticker": "PONY", "Entry Date": "2026-01-06", "Entry Price": 17.35, "Qty": 144, "Exit Price": 15.47, "P&L": -270.69, "Reason": "תחקיר נדרש"},
-    {"Ticker": "RIVN", "Entry Date": "2026-01-06", "Entry Price": 19.20, "Qty": 286, "Exit Price": 17.40, "P&L": -515.56, "Reason": "תחקיר נדרש"},
-    {"Ticker": "RDDT", "Entry Date": "2025-09-20", "Entry Price": 259.60, "Qty": 20, "Exit Price": 218.64, "P&L": -819.18, "Reason": "החזקה ארוכה"},
-    {"Ticker": "PLTR", "Entry Date": "2025-11-25", "Entry Price": 164.60, "Qty": 34, "Exit Price": 166.42, "P&L": 61.97, "Reason": "מימוש רווח"},
-    {"Ticker": "APA", "Entry Date": "2026-01-20", "Entry Price": 25.87, "Qty": 208, "Exit Price": 26.15, "P&L": 58.28, "Reason": "מימוש מהיר"}
-]
+# חיבור ל-Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-if 'trades' not in st.session_state or len(st.session_state.trades) == 0:
-    st.session_state.trades = initial_trades
+# טעינת נתונים מהגיליון
+def load_data():
+    return conn.read(ttl="1m")
 
-# סיכום כללי בתפריט הצד
+df_trades = load_data()
+
+# סיכום בתפריט צד
 st.sidebar.header("💰 סיכום תיק 2026")
-total_pnl = sum(t.get('P&L', 0) for t in st.session_state.trades)
-st.sidebar.metric("רווח/הפסד כולל (YTD)", f"${total_pnl:,.2f}")
+if not df_trades.empty and 'PnL' in df_trades.columns:
+    total_pnl = df_trades['PnL'].sum()
+    st.sidebar.metric("רווח/הפסד כולל (YTD)", f"${total_pnl:,.2f}")
+
+# פונקציה לבדיקת נתוני שוק (ממוצע 150 ודוחות)
+def get_stock_analysis(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="1y")
+        current_price = hist['Close'].iloc[-1]
+        ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
+        
+        # בדיקת דוחות (Earnings)
+        calendar = stock.calendar
+        next_earnings = calendar.get('Earnings Date', [None])[0]
+        
+        return current_price, ma150, next_earnings
+    except:
+        return None, None, None
 
 # ממשק הזנה
-with st.expander("➕ הוספת טרייד חדש"):
-    with st.form("new_trade"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
+with st.expander("➕ הוספת טרייד חדש (נשמר בגיליון)"):
+    with st.form("trade_form"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
             t_ticker = st.text_input("Ticker").upper()
-            t_entry = st.number_input("מחיר כניסה", min_value=0.0, step=0.01)
-        with c2:
+            t_entry_date = st.date_input("תאריך כניסה")
+            t_entry_price = st.number_input("מחיר כניסה", min_value=0.0, step=0.01)
+        with col2:
             t_qty = st.number_input("כמות", min_value=1, step=1)
-            t_exit = st.number_input("מחיר יציאה", min_value=0.0, step=0.01)
-        with c3:
-            t_reason = st.selectbox("סיבת כניסה", ["פריצה", "מעל ממוצע 150", "ספל וידית", "דגל שורי"])
-        
-        if st.form_submit_button("שמור"):
-            pnl = (t_exit - t_entry) * t_qty
-            st.session_state.trades.append({
-                "Ticker": t_ticker, "Entry Date": "2026-01-23", "Entry Price": t_entry, 
-                "Qty": t_qty, "Exit Price": t_exit, "P&L": pnl, "Reason": t_reason
-            })
+            t_exit_price = st.number_input("מחיר יציאה", min_value=0.0, step=0.01)
+        with col3:
+            t_reason = st.selectbox("סיבת כניסה", ["פריצה", "מעל ממוצע 150", "ספל וידית", "דגל שורי", "תחתית כפולה"])
+            t_notes = st.text_area("הערות ותחקיר")
+
+        if st.form_submit_button("שמור טרייד"):
+            pnl = (t_exit_price - t_entry_price) * t_qty
+            new_row = pd.DataFrame([{
+                "Ticker": t_ticker, "Entry_Date": str(t_entry_date), "Entry_Price": t_entry_price,
+                "Qty": t_qty, "Exit_Price": t_exit_price, "PnL": pnl, "Reason": t_reason, "Notes": t_notes
+            }])
+            updated_df = pd.concat([df_trades, new_row], ignore_index=True)
+            conn.update(data=updated_df)
+            st.success(f"הטרייד על {t_ticker} נשמר בגיליון גוגל!")
             st.rerun()
 
-# הצגת הטבלה
-if st.session_state.trades:
-    df = pd.DataFrame(st.session_state.trades)
-    df['Total Cost'] = df['Entry Price'] * df['Qty']
-    
-    st.subheader("רשימת טריידים - ינואר 2026")
-    cols = ['Ticker', 'Entry Date', 'Entry Price', 'Qty', 'Total Cost', 'Exit Price', 'P&L', 'Reason']
-    st.dataframe(df[cols], use_container_width=True)
+# הצגת הטבלה עם ניתוח חי
+if not df_trades.empty:
+    st.subheader("יומן טריידים מנוהל")
+    # הוספת חישוב עלות כוללת לתצוגה
+    display_df = df_trades.copy()
+    display_df['Total_Cost'] = display_df['Entry_Price'] * display_df['Qty']
+    st.dataframe(display_df, use_container_width=True)
+
+    # שלב 3: רשימת מעקב ובדיקת כללי ברזל
+    st.subheader("🔍 תחקור אוטומטי (כללי ברזל)")
+    for ticker in df_trades['Ticker'].unique():
+        curr, ma, earnings = get_stock_analysis(ticker)
+        if curr and ma:
+            status = "✅ מעל 150 MA" if curr > ma else "❌ מתחת ל-150 MA"
+            earning_str = f"| דוח קרוב: {earnings.date()}" if earnings else ""
+            st.write(f"**{ticker}**: מחיר {curr:.2f}$ | {status} {earning_str}")
