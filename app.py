@@ -120,3 +120,30 @@ try:
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
+    # ... (שאר הקוד נשאר אותו דבר, עד שמגיעים ללשונית התחקור למטה)
+
+        st.subheader("🔍 תחקור טכני ולוח דוחות")
+        for ticker in open_trades['Ticker'].unique():
+            try:
+                stock = yf.Ticker(str(ticker))
+                hist = stock.history(period="1y")
+                curr = hist['Close'].iloc[-1]
+                ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
+                
+                # משיכת תאריך דוח
+                calendar = stock.calendar
+                earnings_date = "אין נתונים"
+                if calendar is not None and 'Earnings Date' in calendar:
+                    earnings_date = calendar['Earnings Date'][0].date()
+
+                with st.expander(f"ניתוח {ticker} | דוח קרוב: {earnings_date}"):
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        if curr > ma150: st.success("מעל 150 MA ✅")
+                        else: st.error("מתחת ל-150 MA ❌")
+                        st.write(f"**מחיר:** {curr:.2f}$")
+                        st.write(f"**ממוצע 150:** {ma150:.2f}$")
+                        st.write(f"📅 **דוח הבא:** {earnings_date}")
+                    with col2:
+                        st.line_chart(hist['Close'].tail(60))
+            except: continue
