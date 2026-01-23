@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from streamlit_gsheets import GSheetsConnection
-import time
 
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
@@ -23,10 +22,34 @@ try:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
-        # הפרדה מוחלטת
+        # הפרדת טריידים
         closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
 
+        # --- משיכת נתונים קבוצתית (מונע שגיאות טעינה) ---
+        open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique() if str(t).strip()]
+        
+        market_data = {}
+        if open_tickers:
+            with st.spinner('מושך נתוני שוק עדכניים...'):
+                # משיכה של כל הטיקרים יחד (הרבה יותר אמין)
+                data_download = yf.download(open_tickers, period="1y", group_by='ticker', progress=False)
+                for ticker in open_tickers:
+                    try:
+                        if len(open_tickers) > 1:
+                            t_hist = data_download[ticker]
+                        else:
+                            t_hist = data_download
+                        
+                        if not t_hist.empty:
+                            market_data[ticker] = {
+                                'curr': t_hist['Close'].iloc[-1],
+                                'ma150': t_hist['Close'].rolling(window=150).mean().iloc[-1],
+                                'hist': t_hist
+                            }
+                    except: continue
+
+        # --- Sidebar: שווי פוזיציות ו-Unrealized P/L ---
         market_value_stocks = 0
         total_unrealized_pnl = 0 
 
@@ -34,31 +57,27 @@ try:
             st.sidebar.divider()
             st.sidebar.subheader("פוזיציות פתוחות (Live)")
             for _, row in open_trades.iterrows():
-                ticker = str(row['Ticker']).strip().upper()
-                if ticker and ticker != 'NAN':
-                    try:
-                        stock = yf.Ticker(ticker)
-                        curr_data = stock.history(period="1d")
-                        if not curr_data.empty:
-                            curr_p = curr_data['Close'].iloc[-1]
-                            pos_val = curr_p * row['Qty']
-                            market_value_stocks += pos_val
-                            pnl_open = (curr_p - row['Entry_Price']) * row['Qty']
-                            total_unrealized_pnl += pnl_open
-                            
-                            # תצוגה נקייה בסידבר ללא תגיות HTML
-                            st.sidebar.write(f"**{ticker}:** {pos_val:,.2f}$")
-                            if pnl_open >= 0:
-                                st.sidebar.write(f":green[▲ +{pnl_open:,.2f}$]")
-                            else:
-                                st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
-                    except: continue
+                t = str(row['Ticker']).strip().upper()
+                if t in market_data:
+                    curr_p = market_data[t]['curr']
+                    pos_val = curr_p * row['Qty']
+                    market_value_stocks += pos_val
+                    pnl_open = (curr_p - row['Entry_Price']) * row['Qty']
+                    total_unrealized_pnl += pnl_open
+                    
+                    st.sidebar.write(f"**{t}:** {pos_val:,.2f}$")
+                    if pnl_open >= 0:
+                        st.sidebar.write(f":green[▲ +{pnl_open:,.2f}$]")
+                    else:
+                        st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
 
-            # Unrealized P/L נקי
+            # תצוגת Unrealized P/L נקייה ללא HTML
             st.sidebar.divider()
-            un_color = "green" if total_unrealized_pnl >= 0 else "red"
             st.sidebar.write("### Unrealized P/L")
-            st.sidebar.markdown(f"<h3 style='color:{un_color}; margin:0;'>{total_unrealized_pnl:,.2f}$</h3>", unsafe_allow_html=True)
+            if total_unrealized_pnl >= 0:
+                st.sidebar.success(f"${total_unrealized_pnl:,.2f}")
+            else:
+                st.sidebar.error(f"${total_unrealized_pnl:,.2f}")
 
         # חישוב שווי כולל ודלתא מהפתיחה
         total_value_now = market_value_stocks + available_cash
@@ -68,7 +87,7 @@ try:
         st.sidebar.write("### שווי תיק כולל")
         st.sidebar.write(f"## ${total_value_now:,.2f}")
         
-        # הכרחת עיצוב אדום/ירוק ידני למניעת באגים ויזואליים
+        # תיקון חץ אדום להפסד
         color = "#ff4b4b" if diff < 0 else "#00c853"
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"""<div style="border: 1px solid {color}; border-radius: 5px; padding: 10px; background-color: rgba(0,0,0,0.05);">
@@ -85,41 +104,27 @@ try:
             st.subheader("פוזיציות פעילות")
             st.dataframe(open_trades, use_container_width=True)
             st.divider()
-            st.subheader("🔍 תחקור טכני ולוח דוחות (פוזיציות פתוחות)")
+            st.subheader("🔍 תחקור טכני (פוזיציות פתוחות)")
             
-            for _, row in open_trades.iterrows():
-                ticker = str(row['Ticker']).strip().upper()
-                try:
-                    # משיכת נתונים עם השהייה קלה למניעת שגיאות טעינה
-                    stock = yf.Ticker(ticker)
-                    hist = stock.history(period="1y")
-                    if not hist.empty:
-                        curr = hist['Close'].iloc[-1]
-                        ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
-                        cal = stock.calendar
-                        e_date = "N/A"
-                        if cal is not None and 'Earnings Date' in cal:
-                             e_date = cal['Earnings Date'][0].date()
-
-                        with st.expander(f"ניתוח {ticker} | דוח: {e_date}"):
-                            c1, c2 = st.columns([1, 2])
-                            with c1:
-                                if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
-                                else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
-                                st.write(f"**מחיר:** {curr:.2f}$ | **150 MA:** {ma150:.2f}$")
-                                st.write(f"📅 **דוח:** {e_date}")
-                            with c2: st.line_chart(hist['Close'].tail(60))
-                        time.sleep(0.5) # השהייה ארוכה יותר למניעת חסימה
-                    else:
-                        st.info(f"טוען נתונים עבור {ticker}...")
-                except: 
-                    st.write(f"לא ניתן למשוך נתונים עבור {ticker}. נסה לרענן את הדף.")
-                    continue
+            for t in open_tickers:
+                if t in market_data:
+                    curr = market_data[t]['curr']
+                    ma150 = market_data[t]['ma150']
+                    
+                    with st.expander(f"ניתוח {t}"):
+                        c1, c2 = st.columns([1, 2])
+                        with c1:
+                            if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
+                            else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
+                            st.write(f"**מחיר:** {curr:.2f}$ | **150 MA:** {ma150:.2f}$")
+                        with c2:
+                            st.line_chart(market_data[t]['hist']['Close'].tail(60))
+                else:
+                    st.warning(f"לא ניתן למשוך נתונים עבור {t} כרגע.")
 
         with tab2:
-            # הצגת ההפסד הממומש הכולל מתחילת השנה לפי הדוח שלך
-            st.subheader("היסטוריית עסקאות (Total YTD Loss: $1,916.05)")
+            st.subheader("היסטוריית עסקאות (YTD Loss: $1,916.05)") #
             st.dataframe(closed_trades, use_container_width=True)
 
 except Exception as e:
-    st.error(f"שגיאה: {e}")
+    st.error(f"שגיאה בטעינה: {e}")
