@@ -9,9 +9,9 @@ st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
 # --- נתוני יסוד לפי TradeStation ---
-initial_value_dec_25 = 44302.55
+initial_value_dec_25 = 44302.55 #
 st.sidebar.header("⚙️ נתוני חשבון")
-available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01, format="%.2f")
+available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01, format="%.2f") #
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -23,7 +23,7 @@ try:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
-        # הפרדה מוחלטת בין פתוחים לסגורים
+        # הפרדה מוחלטת
         closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
 
@@ -37,7 +37,7 @@ try:
                 ticker = str(row['Ticker']).strip().upper()
                 if ticker and ticker != 'NAN':
                     try:
-                        # שימוש ב-cache קצר למנוע חסימות מ-Yahoo
+                        # משיכה יחידה של נתונים
                         stock = yf.Ticker(ticker)
                         curr_data = stock.history(period="1d")
                         if not curr_data.empty:
@@ -47,11 +47,13 @@ try:
                             pnl_open = (curr_p - row['Entry_Price']) * row['Qty']
                             total_unrealized_pnl += pnl_open
                             
+                            # תצוגה נקייה בסידבר ללא תגיות HTML
                             st.sidebar.write(f"**{ticker}:** {pos_val:,.2f}$")
                             if pnl_open >= 0:
                                 st.sidebar.write(f":green[▲ +{pnl_open:,.2f}$]")
                             else:
                                 st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
+                        time.sleep(0.2) # השהייה קלה למניעת חסימות
                     except: continue
 
             # תצוגת Unrealized P/L
@@ -60,7 +62,7 @@ try:
             st.sidebar.write("### Unrealized P/L")
             st.sidebar.markdown(f"<h3 style='color:{un_color}; margin:0;'>{total_unrealized_pnl:,.2f}$</h3>", unsafe_allow_html=True)
 
-        # חישוב שווי כולל ודלתא מהפתיחה
+        # חישוב שווי כולל ודלתא
         total_value_now = market_value_stocks + available_cash
         diff = total_value_now - initial_value_dec_25
 
@@ -68,7 +70,7 @@ try:
         st.sidebar.write("### שווי תיק כולל")
         st.sidebar.write(f"## ${total_value_now:,.2f}")
         
-        # הכרחת עיצוב אדום/ירוק ידני למניעת באגים
+        # תיקון החץ והצבע
         color = "#ff4b4b" if diff < 0 else "#00c853"
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"""<div style="border: 1px solid {color}; border-radius: 5px; padding: 10px; background-color: rgba(0,0,0,0.05);">
@@ -87,15 +89,16 @@ try:
             st.divider()
             st.subheader("🔍 תחקור טכני ולוח דוחות (פוזיציות פתוחות)")
             
+            # לוגיקת תחקור עמידה יותר ל-MSTR, ZETA, ONDS
             for _, row in open_trades.iterrows():
                 ticker = str(row['Ticker']).strip().upper()
                 try:
-                    # משיכה עם השהייה קלה למניעת חסימות
                     stock = yf.Ticker(ticker)
                     hist = stock.history(period="1y")
                     if not hist.empty:
                         curr = hist['Close'].iloc[-1]
                         ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
+                        # בדיקת דוחות
                         cal = stock.calendar
                         e_date = "N/A"
                         if cal is not None and 'Earnings Date' in cal:
@@ -109,13 +112,15 @@ try:
                                 st.write(f"**מחיר:** {curr:.2f}$ | **150 MA:** {ma150:.2f}$")
                                 st.write(f"📅 **דוח:** {e_date}")
                             with c2: st.line_chart(hist['Close'].tail(60))
-                        time.sleep(0.1) 
+                        time.sleep(0.3) 
+                    else:
+                        st.warning(f"לא נמצאו נתונים עבור {ticker}")
                 except: 
-                    st.write(f"לא ניתן למשוך נתונים כרגע עבור {ticker}")
+                    st.write(f"שגיאת טעינה עבור {ticker}")
                     continue
 
         with tab2:
-            st.subheader("היסטוריית עסקאות (YTD Loss: $1,916.05)")
+            st.subheader("היסטוריית עסקאות (Total YTD Loss: $1,916.05)") #
             st.dataframe(closed_trades, use_container_width=True)
 
 except Exception as e:
