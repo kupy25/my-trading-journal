@@ -54,13 +54,13 @@ try:
                                 st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
                     except: continue
 
-            # תצוגת Unrealized P/L נקייה
+            # Unrealized P/L נקי
             st.sidebar.divider()
             un_color = "green" if total_unrealized_pnl >= 0 else "red"
             st.sidebar.write("### Unrealized P/L")
             st.sidebar.markdown(f"<h3 style='color:{un_color}; margin:0;'>{total_unrealized_pnl:,.2f}$</h3>", unsafe_allow_html=True)
 
-        # חישוב שווי כולל ודלתא
+        # חישוב שווי כולל ודלתא מהפתיחה
         total_value_now = market_value_stocks + available_cash
         diff = total_value_now - initial_value_dec_25
 
@@ -68,7 +68,7 @@ try:
         st.sidebar.write("### שווי תיק כולל")
         st.sidebar.write(f"## ${total_value_now:,.2f}")
         
-        # תיקון החץ והצבע לאדום במקרה של הפסד
+        # הכרחת עיצוב אדום/ירוק ידני למניעת באגים ויזואליים
         color = "#ff4b4b" if diff < 0 else "#00c853"
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"""<div style="border: 1px solid {color}; border-radius: 5px; padding: 10px; background-color: rgba(0,0,0,0.05);">
@@ -87,7 +87,6 @@ try:
             st.divider()
             st.subheader("🔍 תחקור טכני ולוח דוחות (פוזיציות פתוחות)")
             
-            # לוגיקת תחקור עמידה יותר לכל המניות
             for _, row in open_trades.iterrows():
                 ticker = str(row['Ticker']).strip().upper()
                 try:
@@ -110,15 +109,16 @@ try:
                                 st.write(f"**מחיר:** {curr:.2f}$ | **150 MA:** {ma150:.2f}$")
                                 st.write(f"📅 **דוח:** {e_date}")
                             with c2: st.line_chart(hist['Close'].tail(60))
-                        time.sleep(0.3) 
+                        time.sleep(0.5) # השהייה ארוכה יותר למניעת חסימה
                     else:
-                        st.warning(f"ממתין לנתונים עבור {ticker}...")
+                        st.info(f"טוען נתונים עבור {ticker}...")
                 except: 
-                    st.write(f"שגיאת טעינה זמנית עבור {ticker}. נסה לרענן.")
+                    st.write(f"לא ניתן למשוך נתונים עבור {ticker}. נסה לרענן את הדף.")
                     continue
 
         with tab2:
-            st.subheader("היסטוריית עסקאות (YTD Loss: $1,916.05)") #
+            # הצגת ההפסד הממומש הכולל מתחילת השנה לפי הדוח שלך
+            st.subheader("היסטוריית עסקאות (Total YTD Loss: $1,916.05)")
             st.dataframe(closed_trades, use_container_width=True)
 
 except Exception as e:
