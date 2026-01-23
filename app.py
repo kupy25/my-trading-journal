@@ -31,14 +31,16 @@ try:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
-        # 1. חישוב הפסד ממומש מתחילת השנה (לפי הדוח שצירפת)
-        # במידה והנתונים בגיליון לא מעודכנים, נשתמש בנתון מהדוח: $1,916.05-
-        realized_pnl_2026 = df_trades[df_trades['Exit_Price'] > 0]['PnL'].sum()
+        # הפרדה בין טריידים סגורים לפתוחים
+        closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
+        open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
+
+        # 1. חישוב הפסד ממומש (Realized P/L)
+        # אנחנו מחשבים ישירות מהנתונים בגיליון שאמורים לתאום ל-$1,916.05-
+        realized_pnl_2026 = closed_trades['PnL'].sum()
         
         # 2. חישוב שווי שוק נוכחי של מניות פתוחות
         market_value_stocks = 0
-        open_trades = df_trades[df_trades['Exit_Price'] == 0]
-        
         if not open_trades.empty:
             st.sidebar.divider()
             st.sidebar.subheader("פוזיציות פתוחות")
@@ -65,25 +67,30 @@ try:
         
         # תצוגת המדד המרכזי עם תיקון חץ וצבע
         st.sidebar.divider()
+        # שימוש ב-delta_color="normal" וערך חיובי/שלילי קובע את החץ
         st.sidebar.metric(
             label="שווי תיק כולל (Live)",
             value=f"${total_value_now:,.2f}",
             delta=f"${diff:,.2f}",
-            delta_color="normal" # ירוק למעלה, אדום למטה אוטומטית
+            delta_color="normal" 
         )
         
         st.sidebar.write(f"הפסד ממומש (YTD): :red[{realized_pnl_2026:,.2f}$]")
         st.sidebar.write(f"שווי מניות בבורסה: ${market_value_stocks:,.2f}")
 
-        # ממשק פעולות
+        # --- ממשק מרכזי: הפרדת טבלאות ---
         st.header("➕ פעולות")
         st.link_button("עדכן טריידים בגיליון גוגל", "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit")
 
-        # טבלה ותחקור
-        st.subheader("🗂️ יומן טריידים")
-        st.dataframe(df_trades, use_container_width=True)
+        st.divider()
+        st.subheader("🔓 טריידים פתוחים (בניהול)")
+        st.dataframe(open_trades, use_container_width=True)
 
-        st.subheader("🔍 תחקור טכני")
+        st.subheader("🔒 טריידים סגורים (ארכיון ותחקור)")
+        st.dataframe(closed_trades, use_container_width=True)
+
+        # תחקור טכני
+        st.subheader("🔍 תחקור טכני (ממוצע 150)")
         for ticker in df_trades['Ticker'].unique():
             if pd.isna(ticker) or ticker == "": continue
             try:
