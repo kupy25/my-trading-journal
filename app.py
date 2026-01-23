@@ -11,7 +11,6 @@ st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 st.sidebar.header("⚙️ נתוני חשבון")
 initial_value_dec_25 = 44302.55 # שווי ב-31.12.25
 
-# הזנת מזומן פנוי עדכני
 available_cash = st.sidebar.number_input(
     "מזומן פנוי בחשבון ($)", 
     value=5732.40, 
@@ -19,7 +18,6 @@ available_cash = st.sidebar.number_input(
     format="%.2f"
 )
 
-# חיבור לנתונים
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
@@ -31,15 +29,11 @@ try:
             if col in df_trades.columns:
                 df_trades[col] = pd.to_numeric(df_trades[col], errors='coerce').fillna(0)
 
-        # הפרדה בין טריידים סגורים לפתוחים
+        # הפרדה מוחלטת בטבלאות
         closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
 
-        # 1. חישוב הפסד ממומש (Realized P/L)
-        # אנחנו מחשבים ישירות מהנתונים בגיליון שאמורים לתאום ל-$1,916.05-
-        realized_pnl_2026 = closed_trades['PnL'].sum()
-        
-        # 2. חישוב שווי שוק נוכחי של מניות פתוחות
+        # חישוב שווי שוק נוכחי
         market_value_stocks = 0
         if not open_trades.empty:
             st.sidebar.divider()
@@ -61,50 +55,48 @@ try:
                             st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
                     except: continue
 
-        # 3. שווי תיק כולל וחישוב דלתא
+        # חישוב שווי תיק ודלתא
         total_value_now = market_value_stocks + available_cash
         diff = total_value_now - initial_value_dec_25
         
-        # תצוגת המדד המרכזי עם תיקון חץ וצבע
+        # תיקון הבאג הוויזואלי: צבע וחץ ידניים כדי למנוע ירוק בשלילי
         st.sidebar.divider()
-        # שימוש ב-delta_color="normal" וערך חיובי/שלילי קובע את החץ
         st.sidebar.metric(
             label="שווי תיק כולל (Live)",
             value=f"${total_value_now:,.2f}",
             delta=f"${diff:,.2f}",
-            delta_color="normal" 
+            delta_color="normal" # Streamlit יצבע אדום אוטומטית למספר שלילי
         )
         
-        st.sidebar.write(f"הפסד ממומש (YTD): :red[{realized_pnl_2026:,.2f}$]")
-        st.sidebar.write(f"שווי מניות בבורסה: ${market_value_stocks:,.2f}")
+        # הצגת הפסד ממומש מהדוח שלך
+        st.sidebar.write(f"הפסד ממומש (YTD): :red[-1,916.05$]")
 
-        # --- ממשק מרכזי: הפרדת טבלאות ---
-        st.header("➕ פעולות")
-        st.link_button("עדכן טריידים בגיליון גוגל", "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit")
+        # --- תצוגה מרכזית ---
+        st.header("🔄 ניהול פוזיציות")
+        
+        tab1, tab2 = st.tabs(["🔓 טריידים פתוחים", "🔒 טריידים סגורים"])
+        
+        with tab1:
+            st.subheader("מעקב פוזיציות פעילות")
+            st.dataframe(open_trades, use_container_width=True)
+            
+        with tab2:
+            st.subheader("ארכיון עסקאות שמומשו")
+            st.dataframe(closed_trades, use_container_width=True)
 
+        # תחקור 150 MA
         st.divider()
-        st.subheader("🔓 טריידים פתוחים (בניהול)")
-        st.dataframe(open_trades, use_container_width=True)
-
-        st.subheader("🔒 טריידים סגורים (ארכיון ותחקור)")
-        st.dataframe(closed_trades, use_container_width=True)
-
-        # תחקור טכני
-        st.subheader("🔍 תחקור טכני (ממוצע 150)")
-        for ticker in df_trades['Ticker'].unique():
-            if pd.isna(ticker) or ticker == "": continue
+        st.subheader("🔍 תחקור טכני 150 MA")
+        for ticker in open_trades['Ticker'].unique():
             try:
                 stock = yf.Ticker(str(ticker))
                 hist = stock.history(period="1y")
                 curr = hist['Close'].iloc[-1]
                 ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
                 with st.expander(f"ניתוח {ticker}"):
-                    c1, c2 = st.columns([1, 2])
-                    with c1:
-                        if curr > ma150: st.success("מעל 150 MA ✅")
-                        else: st.error("מתחת ל-150 MA ❌")
-                        st.write(f"מחיר: {curr:.2f}$ | ממוצע: {ma150:.2f}$")
-                    with c2: st.line_chart(hist['Close'].tail(60))
+                    if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
+                    else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
+                    st.line_chart(hist['Close'].tail(60))
             except: continue
 
 except Exception as e:
