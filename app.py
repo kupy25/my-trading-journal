@@ -27,13 +27,13 @@ try:
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
 
         market_value_stocks = 0
-        total_unrealized_pnl = 0 # משתנה חדש לסיכום רווח לא ממומש
+        total_unrealized_pnl = 0 
 
         if not open_trades.empty:
             st.sidebar.divider()
             st.sidebar.subheader("פוזיציות פתוחות (Live)")
             for _, row in open_trades.iterrows():
-                ticker = str(row['Ticker']).strip().upper() # ניקוי רווחים והפיכה לאותיות גדולות
+                ticker = str(row['Ticker']).strip().upper() # ניקוי רווחים והמרת אותיות
                 if ticker and ticker != 'NAN' and ticker != "":
                     try:
                         stock = yf.Ticker(ticker)
@@ -53,17 +53,16 @@ try:
                                 st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
                     except: continue
 
-            # סיכום רווח/הפסד לא ממומש ב-Sidebar
+            # שינוי כותרת ל-Unrealized P/L
             st.sidebar.divider()
             unrealized_color = "green" if total_unrealized_pnl >= 0 else "red"
-            st.sidebar.write("### סה\"כ רווח/הפסד 'על הנייר'")
+            st.sidebar.write("### Unrealized P/L")
             st.sidebar.markdown(f"<h3 style='color:{unrealized_color}; margin:0;'>{total_unrealized_pnl:,.2f}$</h3>", unsafe_allow_html=True)
 
         # חישוב שווי כולל ודלתא
         total_value_now = market_value_stocks + available_cash
         diff = total_value_now - initial_value_dec_25
 
-        # תיקון ויזואלי ב-Sidebar
         st.sidebar.divider()
         st.sidebar.write("### שווי תיק כולל")
         st.sidebar.write(f"## ${total_value_now:,.2f}")
@@ -90,11 +89,13 @@ try:
             st.divider()
             st.subheader("🔍 תחקור טכני ולוח דוחות (פוזיציות פתוחות)")
             
-            # וידוא שסורקים את כל הטיקרים הפתוחים
-            for ticker in open_trades['Ticker'].dropna().unique():
-                ticker = str(ticker).strip().upper()
+            # סריקת כל הטיקרים - ללא סינון ייחודיים כדי לא לפספס כפילויות אם יש
+            for _, row in open_trades.iterrows():
+                ticker = str(row['Ticker']).strip().upper()
+                if not ticker or ticker == 'NAN': continue
                 try:
                     stock = yf.Ticker(ticker)
+                    # משיכת היסטוריה ארוכה יותר כדי לוודא שיש נתוני ממוצע נע
                     hist = stock.history(period="1y")
                     if not hist.empty:
                         curr = hist['Close'].iloc[-1]
@@ -105,12 +106,15 @@ try:
                         with st.expander(f"ניתוח {ticker} | דוח: {e_date}"):
                             c1, c2 = st.columns([1, 2])
                             with c1:
-                                if curr > ma150: st.success("מגמה חיובית ✅")
-                                else: st.error("מגמה שלילית ❌")
-                                st.write(f"**מחיר:** {curr:.2f}$ | **150 MA:** {ma150:.2f}$")
+                                if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
+                                else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
+                                st.write(f"**מחיר:** {curr:.2f}$")
+                                st.write(f"**150 MA:** {ma150:.2f}$")
                                 st.write(f"📅 **דוח:** {e_date}")
                             with c2: st.line_chart(hist['Close'].tail(60))
-                except: continue
+                except: 
+                    st.write(f"לא ניתן למשוך נתונים עבור {ticker}")
+                    continue
 
         with tab2:
             st.subheader("היסטוריית עסקאות")
