@@ -37,7 +37,6 @@ try:
                 ticker = str(row['Ticker']).strip().upper()
                 if ticker and ticker != 'NAN':
                     try:
-                        # משיכה יחידה של נתונים
                         stock = yf.Ticker(ticker)
                         curr_data = stock.history(period="1d")
                         if not curr_data.empty:
@@ -47,16 +46,15 @@ try:
                             pnl_open = (curr_p - row['Entry_Price']) * row['Qty']
                             total_unrealized_pnl += pnl_open
                             
-                            # תצוגה נקייה בסידבר ללא תגיות HTML
+                            # תצוגה נקייה ללא HTML
                             st.sidebar.write(f"**{ticker}:** {pos_val:,.2f}$")
                             if pnl_open >= 0:
                                 st.sidebar.write(f":green[▲ +{pnl_open:,.2f}$]")
                             else:
                                 st.sidebar.write(f":red[▼ {pnl_open:,.2f}$]")
-                        time.sleep(0.2) # השהייה קלה למניעת חסימות
                     except: continue
 
-            # תצוגת Unrealized P/L
+            # Unrealized P/L
             st.sidebar.divider()
             un_color = "green" if total_unrealized_pnl >= 0 else "red"
             st.sidebar.write("### Unrealized P/L")
@@ -89,16 +87,15 @@ try:
             st.divider()
             st.subheader("🔍 תחקור טכני ולוח דוחות (פוזיציות פתוחות)")
             
-            # לוגיקת תחקור עמידה יותר ל-MSTR, ZETA, ONDS
             for _, row in open_trades.iterrows():
                 ticker = str(row['Ticker']).strip().upper()
                 try:
+                    # משיכת נתונים עם השהייה למניעת חסימות
                     stock = yf.Ticker(ticker)
                     hist = stock.history(period="1y")
                     if not hist.empty:
                         curr = hist['Close'].iloc[-1]
                         ma150 = hist['Close'].rolling(window=150).mean().iloc[-1]
-                        # בדיקת דוחות
                         cal = stock.calendar
                         e_date = "N/A"
                         if cal is not None and 'Earnings Date' in cal:
@@ -107,21 +104,19 @@ try:
                         with st.expander(f"ניתוח {ticker} | דוח: {e_date}"):
                             c1, c2 = st.columns([1, 2])
                             with c1:
-                                if curr > ma150: st.success("מגמה חיובית (מעל 150 MA) ✅")
-                                else: st.error("מגמה שלילית (מתחת ל-150 MA) ❌")
+                                if curr > ma150: st.success("מגמה חיובית ✅")
+                                else: st.error("מגמה שלילית ❌")
                                 st.write(f"**מחיר:** {curr:.2f}$ | **150 MA:** {ma150:.2f}$")
                                 st.write(f"📅 **דוח:** {e_date}")
                             with c2: st.line_chart(hist['Close'].tail(60))
                         time.sleep(0.3) 
-                    else:
-                        st.warning(f"לא נמצאו נתונים עבור {ticker}")
                 except: 
                     st.write(f"שגיאת טעינה עבור {ticker}")
                     continue
 
         with tab2:
-            st.subheader("היסטוריית עסקאות (Total YTD Loss: $1,916.05)") #
+            st.subheader("היסטוריית עסקאות (YTD Loss: $1,916.05)") #
             st.dataframe(closed_trades, use_container_width=True)
 
 except Exception as e:
-    st.error(f"שגיאה: {e}")
+    st.error(f"שגיאה בטעינת הנתונים: {e}")
