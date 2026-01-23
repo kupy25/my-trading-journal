@@ -5,16 +5,18 @@ import pandas as pd
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 יומן מסחר ותחקור - 2026")
 
-# --- נתוני הטריידים המעודכנים ---
-if 'trades' not in st.session_state:
-    st.session_state.trades = [
-        {"Ticker": "SEDG", "Entry Date": "2026-01-05", "Entry Price": 32.92, "Qty": 174, "Exit Price": 30.45, "P&L": -430.87, "Reason": "תחקיר נדרש"},
-        {"Ticker": "PONY", "Entry Date": "2026-01-06", "Entry Price": 17.35, "Qty": 144, "Exit Price": 15.47, "P&L": -270.69, "Reason": "תחקיר נדרש"},
-        {"Ticker": "RIVN", "Entry Date": "2026-01-06", "Entry Price": 19.20, "Qty": 286, "Exit Price": 17.40, "P&L": -515.56, "Reason": "תחקיר נדרש"},
-        {"Ticker": "RDDT", "Entry Date": "2025-09-20", "Entry Price": 259.60, "Qty": 20, "Exit Price": 218.64, "P&L": -819.18, "Reason": "החזקה ארוכה"},
-        {"Ticker": "PLTR", "Entry Date": "2025-11-25", "Entry Price": 164.60, "Qty": 34, "Exit Price": 166.42, "P&L": 61.97, "Reason": "מימוש רווח"},
-        {"Ticker": "APA", "Entry Date": "2026-01-20", "Entry Price": 25.87, "Qty": 208, "Exit Price": 26.15, "P&L": 58.28, "Reason": "מימוש מהיר"}
-    ]
+# --- נתוני הטריידים המעודכנים (כאן אנחנו מבטיחים שהם יופיעו) ---
+initial_trades = [
+    {"Ticker": "SEDG", "Entry Date": "2026-01-05", "Entry Price": 32.92, "Qty": 174, "Exit Price": 30.45, "P&L": -430.87, "Reason": "תחקיר נדרש"},
+    {"Ticker": "PONY", "Entry Date": "2026-01-06", "Entry Price": 17.35, "Qty": 144, "Exit Price": 15.47, "P&L": -270.69, "Reason": "תחקיר נדרש"},
+    {"Ticker": "RIVN", "Entry Date": "2026-01-06", "Entry Price": 19.20, "Qty": 286, "Exit Price": 17.40, "P&L": -515.56, "Reason": "תחקיר נדרש"},
+    {"Ticker": "RDDT", "Entry Date": "2025-09-20", "Entry Price": 259.60, "Qty": 20, "Exit Price": 218.64, "P&L": -819.18, "Reason": "החזקה ארוכה"},
+    {"Ticker": "PLTR", "Entry Date": "2025-11-25", "Entry Price": 164.60, "Qty": 34, "Exit Price": 166.42, "P&L": 61.97, "Reason": "מימוש רווח"},
+    {"Ticker": "APA", "Entry Date": "2026-01-20", "Entry Price": 25.87, "Qty": 208, "Exit Price": 26.15, "P&L": 58.28, "Reason": "מימוש מהיר"}
+]
+
+if 'trades' not in st.session_state or len(st.session_state.trades) == 0:
+    st.session_state.trades = initial_trades
 
 # סיכום כללי בתפריט הצד
 st.sidebar.header("💰 סיכום תיק 2026")
@@ -42,19 +44,11 @@ with st.expander("➕ הוספת טרייד חדש"):
             })
             st.rerun()
 
-# יצירת הטבלה וחישוב עמודות
+# הצגת הטבלה
 if st.session_state.trades:
     df = pd.DataFrame(st.session_state.trades)
-    
-    # חישוב בטוח של עלות כוללת
     df['Total Cost'] = df['Entry Price'] * df['Qty']
     
     st.subheader("רשימת טריידים - ינואר 2026")
-    # סידור העמודות לפי הסדר שביקשת
     cols = ['Ticker', 'Entry Date', 'Entry Price', 'Qty', 'Total Cost', 'Exit Price', 'P&L', 'Reason']
     st.dataframe(df[cols], use_container_width=True)
-
-    # שלב 3: תובנות ראשוניות
-    st.subheader("💡 תובנות לשיפור")
-    if total_pnl < 0:
-        st.error(f"הפסד מצטבר של ${abs(total_pnl):,.2f}. שים לב למניות ה-EV (כמו RIVN) והאנרגיה (SEDG).")
