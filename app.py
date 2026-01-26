@@ -9,7 +9,10 @@ import datetime
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק והתפלגות נכסים - 2026")
 
-# --- נתוני יסוד ---
+# הקישור הישיר לגיליון שלך
+SHEET_URL = "https://docs.google.com/spreadsheets/d/15bb1wUF_364oWvwkHnACsuqlH9dedzZPX4sB4AseNRk"
+
+# --- נתוני יסוד לפי TradeStation ---
 initial_value_dec_25 = 44302.55
 st.sidebar.header("⚙️ נתוני חשבון")
 available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01)
@@ -44,7 +47,7 @@ try:
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
         closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
 
-        # משיכה קבוצתית
+        # משיכה קבוצתית (מניעת שגיאות MSTR/ZETA/ONDS)
         open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique()]
         market_data = {}
         if open_tickers:
@@ -60,7 +63,7 @@ try:
                         }
                 except: continue
 
-        # --- Sidebar: פוזיציות ונתונים ---
+        # --- Sidebar: נתוני לייב וצבעים מתוקנים ---
         market_value_stocks = 0
         total_unrealized_pnl = 0
         pie_data = [{"Asset": "Cash", "Value": available_cash}]
@@ -77,12 +80,17 @@ try:
                 total_unrealized_pnl += pnl
                 pie_data.append({"Asset": t, "Value": pos_val})
                 st.sidebar.write(f"**{t}:** {pos_val:,.2f}$")
-                st.sidebar.markdown(f"<p style='color:{'#00c853' if pnl >= 0 else '#ff4b4b'}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
+                # צבעים ידניים למניעת באג הטקסט הלבן
+                pnl_color = "#00c853" if pnl >= 0 else "#ff4b4b"
+                st.sidebar.markdown(f"<p style='color:{pnl_color}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
 
+        # Unrealized P/L
         st.sidebar.divider()
+        un_color = "#00c853" if total_unrealized_pnl >= 0 else "#ff4b4b"
         st.sidebar.write("### Unrealized P/L")
-        st.sidebar.markdown(f"<h3 style='color:{'#00c853' if total_unrealized_pnl >= 0 else '#ff4b4b'}; margin:0;'>${total_unrealized_pnl:,.2f}</h3>", unsafe_allow_html=True)
+        st.sidebar.markdown(f"<h3 style='color:{un_color}; margin:0;'>${total_unrealized_pnl:,.2f}</h3>", unsafe_allow_html=True)
 
+        # שווי כולל ודלתא
         total_val = market_value_stocks + available_cash
         diff = total_val - initial_value_dec_25
         st.sidebar.divider()
@@ -93,6 +101,9 @@ try:
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"<div style='border: 1px solid {d_color}; padding: 10px; border-radius: 5px;'><p style='margin:0; color:gray;'>{label}</p><h3 style='margin:0; color:{d_color};'>{icon} ${abs(diff):,.2f}</h3></div>", unsafe_allow_html=True)
 
+        # --- הכפתור המבוקש בראש הדף המרכזי ---
+        st.link_button("📂 פתח גיליון גוגל לעדכון טריידים", SHEET_URL, use_container_width=True, type="primary")
+
         # --- תצוגה מרכזית ---
         tab1, tab2 = st.tabs(["🔓 טריידים פתוחים", "🔒 טריידים סגורים"])
         
@@ -100,7 +111,7 @@ try:
             st.subheader("פוזיציות פעילות")
             st.dataframe(open_trades, use_container_width=True)
             
-            # --- הגרף במרכז הדף ---
+            # --- הגרף המרכזי (מעל התחקור) ---
             st.divider()
             col_a, col_b, col_c = st.columns([1, 2, 1])
             with col_b:
