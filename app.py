@@ -9,8 +9,8 @@ import datetime
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק והתפלגות נכסים - 2026")
 
-# הקישור המעודכן לגיליון שלך
-SHEET_URL = "https://docs.google.com/spreadsheets/d/15bb1wUF_364oWvwkHnACsuqlH9dedzZPX4sB4AseNRk"
+# הקישור המעודכן לקובץ שלך
+SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
 # --- נתוני יסוד לפי TradeStation ---
 initial_value_dec_25 = 44302.55
@@ -28,7 +28,6 @@ risk_pct = st.sidebar.slider("סיכון מהתיק (%)", 0.25, 2.0, 1.0, 0.25)
 if calc_ticker and entry_p > stop_p:
     money_at_risk = initial_value_dec_25 * (risk_pct / 100)
     risk_per_share = entry_p - stop_p
-    # הגבלה לפי מזומן פנוי
     final_qty = min(int(money_at_risk / risk_per_share), int(available_cash / entry_p))
     if final_qty > 0:
         st.sidebar.success(f"✅ כמות לקנייה: {final_qty} מניות")
@@ -48,7 +47,7 @@ try:
         open_trades = df_trades[df_trades['Exit_Price'] == 0].copy()
         closed_trades = df_trades[df_trades['Exit_Price'] > 0].copy()
 
-        # משיכה קבוצתית למניעת שגיאות טעינה
+        # משיכה קבוצתית של נתוני שוק
         open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique()]
         market_data = {}
         if open_tickers:
@@ -64,7 +63,7 @@ try:
                         }
                 except: continue
 
-        # --- Sidebar: נתוני לייב וצבעים מתוקנים ---
+        # --- Sidebar: נתוני לייב וצבעים ---
         market_value_stocks = 0
         total_unrealized_pnl = 0
         pie_data = [{"Asset": "Cash", "Value": available_cash}]
@@ -90,7 +89,7 @@ try:
         st.sidebar.write("### Unrealized P/L")
         st.sidebar.markdown(f"<h3 style='color:{un_color}; margin:0;'>${total_unrealized_pnl:,.2f}</h3>", unsafe_allow_html=True)
 
-        # שווי כולל ודלתא עם תיקון חץ אדום
+        # שווי כולל וביצועים
         total_val = market_value_stocks + available_cash
         diff = total_val - initial_value_dec_25
         st.sidebar.divider()
@@ -101,7 +100,7 @@ try:
         icon, label = ("▼", "הפסד מתחילת השנה") if diff < 0 else ("▲", "רווח מתחילת השנה")
         st.sidebar.markdown(f"<div style='border: 1px solid {d_color}; padding: 10px; border-radius: 5px;'><p style='margin:0; color:gray;'>{label}</p><h3 style='margin:0; color:{d_color};'>{icon} ${abs(diff):,.2f}</h3></div>", unsafe_allow_html=True)
 
-        # --- הוספת הכפתור הקבוע בראש הדף ---
+        # --- כפתור הקישור המעודכן בראש הדף ---
         st.link_button("📂 פתח גיליון גוגל לעדכון טריידים", SHEET_URL, use_container_width=True, type="primary")
 
         # --- תצוגה מרכזית ---
