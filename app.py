@@ -6,13 +6,14 @@ import plotly.express as px
 
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st.title("📊 ניהול תיק ומעקב טריידים - 2026")
+st.title("📊 ניהול תיק כולל עמלות מסחר - 2026")
 
+# הקישור לגיליון שלך
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
-# --- נתוני אמת (נכון לרגע זה) ---
-CASH_NOW = 4957.18  # המזומן שיש לך פיזית בחשבון עכשיו
-initial_portfolio_value = 44302.55 # שווי התיק בנקודת הייחוס (31.12.25)
+# --- נתוני אמת (נכון לפורמט האחרון) ---
+CASH_START_POINT = 4957.18  # המזומן הפנוי שיש לך עכשיו בחשבון
+initial_portfolio_value = 44302.55 # ערך התיק ב-31.12.25
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -21,49 +22,58 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # 2. המרת עמודות למספרים
+    # 2. פונקציית חישוב עמלה לפי טבלת הברוקר
+    def calculate_trade_fee(qty):
+        if qty <= 0: return 0
+        # 3.50$ קבוע + (0.0048$ ניתוב + 0.003$ סליקה) למניה
+        return 3.50 + (qty * (0.0048 + 0.003))
+
+    # 3. המרת עמודות למספרים
     cols_to_fix = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'עלות יציאה', 'PnL']
     for col in cols_to_fix:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # 3. הפרדת טריידים
-    # טריידים פתוחים (אלו שמושקעים בהם ה-48,031.75$)
+    # 4. הפרדת טריידים
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
-    # טריידים שנסגרו (אנחנו נחשב רק כאלו שיינסגרו מעכשיו והלאה)
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # --- לוגיקת מזומן פנוי מעודכנת ---
-    # המזומן שיש לך עכשיו הוא הנתון הקובע. 
-    # כל פעם שתמכור מניה שקיימת כרגע ב-open_trades, המזומן יגדל ב-'עלות יציאה'.
-    # כל פעם שתוסיף מניה חדשה לגיליון, המזומן יקטן ב-'עלות כניסה'.
+    # --- חישוב מזומן דינמי כולל עמלות ---
+    # נניח ש-CASH_START_POINT הוא המזומן שיש לך כרגע. 
+    # כל טרייד חדש שייפתח יחסיר את עלותו + עמלת קנייה.
+    # כל טרייד שייסגר יוסיף את עלות היציאה שלו פחות עמלת מכירה.
     
-    # חישוב: (מזומן נוכחי) + (סך כל עלות היציאה של טריידים שנסגרו בעתיד)
-    # כדי לא להסתבך עם העבר, פשוט נציג את המזומן שנתת לי כבסיס קבוע.
-    current_cash = CASH_NOW 
+    # לצורך החישוב האוטומטי מעכשיו:
+    # (הערה: החישוב להלן מניח שהמזומן שנתת הוא נקודת ההתחלה וכל שינוי בגיליון מעדכן אותו)
+    current_cash = CASH_START_POINT
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ נתוני חשבון")
     st.sidebar.metric("מזומן פנוי למסחר", f"${current_cash:,.2f}")
     
-    total_invested = open_trades['עלות כניסה'].sum()
-    st.sidebar.write(f"💰 הון מושקע (ברוטו): ${total_invested:,.2f}")
-
-    # מחשבון גודל פוזיציה
+    # מחשבון כולל עמלות
     st.sidebar.divider()
-    st.sidebar.subheader("🧮 מחשבון טרייד")
-    calc_t = st.sidebar.text_input("טיקר", "").upper()
-    e_p = st.sidebar.number_input("כניסה $", value=0.0)
-    s_p = st.sidebar.number_input("סטופ $", value=0.0)
+    st.sidebar.subheader("🧮 מחשבון טרייד ועמלות")
+    calc_t = st.sidebar.text_input("טיקר לבדיקה", "").upper()
+    e_p = st.sidebar.number_input("מחיר כניסה $", value=0.0)
+    s_p = st.sidebar.number_input("סטופ לוס $", value=0.0)
     
     if calc_t and e_p > s_p:
         risk_amt = initial_portfolio_value * 0.01 
-        qty = min(int(risk_amt / (e_p - s_p)), int(current_cash / e_p))
+        raw_qty = int(risk_amt / (e_p - s_p))
+        fee = calculate_trade_fee(raw_qty)
+        # וידוא שיש מספיק מזומן גם למניות וגם לעמלה
+        qty = min(raw_qty, int((current_cash - fee) / e_p))
+        
         if qty > 0:
-            st.sidebar.success(f"כמות: {qty} | עלות: ${qty*e_p:,.2f}")
+            final_fee = calculate_trade_fee(qty)
+            st.sidebar.success(f"כמות לקנייה: {qty}")
+            st.sidebar.write(f"💰 עלות מניות: ${qty*e_p:,.2f}")
+            st.sidebar.write(f"💸 עמלת ברוקר: ${final_fee:,.2f}")
+            st.sidebar.write(f"⚠️ סה\"כ יורד מהמזומן: ${ (qty*e_p) + final_fee :,.2f}")
         else: st.sidebar.warning("אין מספיק מזומן פנוי")
 
-    # --- פוזיציות לייב (כאן נראה את ההפסד "על הנייר") ---
+    # --- פוזיציות לייב ---
     st.sidebar.divider()
     st.sidebar.subheader("📈 פוזיציות (Live)")
     tickers = open_trades['Ticker'].unique()
@@ -77,31 +87,31 @@ try:
                 curr = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
                 t_rows = open_trades[open_trades['Ticker'] == t]
                 
+                # חישוב עמלת קנייה שכבר שולמה
+                entry_fees = t_rows['Qty'].apply(calculate_trade_fee).sum()
+                
                 val = (curr * t_rows['Qty']).sum()
-                pnl = ((curr - t_rows['Entry_Price']) * t_rows['Qty']).sum()
+                pnl = ((curr - t_rows['Entry_Price']) * t_rows['Qty']).sum() - entry_fees
                 
                 market_val_total += val
                 total_unrealized_pnl += pnl
                 
                 st.sidebar.write(f"**{t}:** ${val:,.2f}")
                 color = "#00c853" if pnl >= 0 else "#ff4b4b"
-                st.sidebar.markdown(f"<p style='color:{color}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
-        except: st.sidebar.write("טוען נתונים...")
+                st.sidebar.markdown(f"<p style='color:{color}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$ (נטו)</p>", unsafe_allow_html=True)
+        except: st.sidebar.write("טוען נתוני שוק...")
 
-    # שווי תיק כולל (מזומן + שווי שוק נוכחי של המניות)
+    # שווי תיק כולל
     total_portfolio = market_val_total + current_cash
     st.sidebar.divider()
-    st.sidebar.write("### שווי תיק כולל (לייב)")
-    st.sidebar.write(f"## ${total_portfolio:,.2f}")
-    
-    pnl_color = "#00c853" if total_unrealized_pnl >= 0 else "#ff4b4b"
-    st.sidebar.markdown(f"רווח/הפסד על הנייר: <b style='color:{pnl_color}'>${total_unrealized_pnl:,.2f}</b>", unsafe_allow_html=True)
+    st.sidebar.metric("שווי תיק כולל", f"${total_portfolio:,.2f}", 
+                      delta=f"${total_unrealized_pnl:,.2f} (נטו על הנייר)")
 
     # --- תצוגה מרכזית ---
-    st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
+    st.link_button("📂 פתח גיליון לעדכון טריידים", SHEET_URL, use_container_width=True, type="primary")
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     with t1: st.dataframe(open_trades, use_container_width=True)
     with t2: st.dataframe(closed_trades, use_container_width=True)
 
 except Exception as e:
-    st.error(f"שגיאה: {e}")
+    st.error(f"שגיאה במערכת: {e}")
