@@ -9,6 +9,7 @@ import datetime
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
+# הקישור הישיר לגיליון שלך
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
 # --- נתוני יסוד ---
@@ -16,18 +17,23 @@ initial_value_dec_25 = 44302.55
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. משיכת נתוני הטריידים מהלשונית הראשית
+    # 1. קריאת נתוני הטריידים מהלשונית הראשית
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # 2. משיכת מזומן פנוי מלשונית Account (עמודה Cash)
+    # 2. ניהול מזומן מלשונית Account
     try:
         df_acc = conn.read(worksheet="Account", ttl="0")
         df_acc.columns = df_acc.columns.str.strip()
-        available_cash = float(df_acc['Cash'].iloc[0])
-    except Exception as e:
-        # ברירת מחדל במקרה של תקלה בקריאת המזומן
+        if 'Cash' in df_acc.columns:
+            available_cash = float(df_acc['Cash'].iloc[0])
+            cash_status = "✅ נמשך מהטבלה"
+        else:
+            available_cash = 5732.40
+            cash_status = "⚠️ עמודת Cash לא נמצאה"
+    except:
         available_cash = 5732.40
+        cash_status = "⚠️ לשונית Account לא נמצאה"
 
     # טיפול בתאריכים ומספרים בטריידים
     for date_col in ['Entry_Date', 'Exit_Date']:
@@ -45,7 +51,7 @@ try:
 
     # --- SIDEBAR: נתוני חשבון ומחשבון ---
     st.sidebar.header("⚙️ נתוני חשבון")
-    st.sidebar.metric("מזומן פנוי (מהטבלה)", f"${available_cash:,.2f}")
+    st.sidebar.metric("מזומן פנוי", f"${available_cash:,.2f}", help=cash_status)
     
     # מחשבון גודל פוזיציה
     st.sidebar.divider()
@@ -128,4 +134,4 @@ try:
         st.dataframe(closed_trades[[c for c in cols_closed if c in closed_trades.columns]], use_container_width=True)
 
 except Exception as e:
-    st.error(f"שגיאה בעדכון הנתונים: {e}")
+    st.error(f"שגיאה כללית במערכת: {e}")
