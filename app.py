@@ -75,10 +75,10 @@ try:
         
         open_trades = open_trades.merge(pd.DataFrame(live_data_list), on='Ticker')
 
-    # --- SIDEBAR (מעוצב מחדש) ---
+    # --- SIDEBAR (ארגון מחדש לפי בקשתך) ---
     st.sidebar.header("⚙️ נתוני חשבון")
     
-    # שווי ומזומן
+    # בלוק 1: שווי, מזומן ועמלות (הכל מרוכז למעלה)
     total_portfolio = market_val_total + CASH_NOW
     portfolio_diff = total_portfolio - initial_portfolio_value
     diff_color = "#00c853" if portfolio_diff >= 0 else "#ff4b4b"
@@ -88,7 +88,10 @@ try:
     st.sidebar.write(f"## ${total_portfolio:,.2f}")
     st.sidebar.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if portfolio_diff >= 0 else ''}{portfolio_diff:,.2f}$</p>", unsafe_allow_html=True)
     
-    # מחשבון טרייד - כפתור פתיחה צף (Pop-over)
+    # המיקום החדש של העמלות - מיד מתחת לשווי התיק
+    st.sidebar.write(f"📉 **עלויות מסחר מצטברות:** `${total_annual_fees:,.2f}`")
+
+    # בלוק 2: מחשבון טרייד (בכפתור פופ-אובר)
     st.sidebar.divider()
     with st.sidebar.popover("🧮 מחשבון טרייד חדש", use_container_width=True):
         st.subheader("מחשבון גודל פוזיציה")
@@ -102,20 +105,14 @@ try:
             qty = min(int(risk_amt / (e_p - s_p)), int(CASH_NOW / e_p))
             st.success(f"כמות לקנייה: {qty}")
             st.write(f"💰 עלות כוללת: ${qty*e_p:,.2f}")
-            st.write(f"💸 סיכון דולרי: ${qty*(e_p-s_p):,.2f}")
 
-    # פוזיציות לייב
+    # בלוק 3: פוזיציות לייב
     st.sidebar.subheader("📈 פוזיציות (Live)")
     if not open_trades.empty:
         for _, row in open_trades.iterrows():
             p_color = "#00c853" if row['PnL_Net'] >= 0 else "#ff4b4b"
             st.sidebar.write(f"**{row['Ticker']}:** ${row['Market_Value']:,.2f}")
             st.sidebar.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$ ({row['PnL_Pct']:.2f}%)</p>", unsafe_allow_html=True)
-
-    # עמלות בתחתית
-    st.sidebar.divider()
-    st.sidebar.caption("📉 עלויות מסחר מצטברות 2026:")
-    st.sidebar.write(f"**${total_annual_fees:,.2f}**")
 
     # --- מסך ראשי ---
     st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
