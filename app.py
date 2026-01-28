@@ -16,11 +16,23 @@ initial_value_dec_25 = 44302.55
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # קריאת הנתונים
+    # 1. משיכת נתוני הטריידים מהטאב הראשי
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # טיפול בתאריכים ומספרים
+    # 2. משיכת מזומן פנוי מהטבלה (מניח שיש טאב בשם 'Account' עם עמודה בשם 'Cash')
+    # אם אין טאב כזה, הקוד ישתמש בערך ברירת מחדל כדי לא לקרוס
+    try:
+        df_acc = conn.read(worksheet="Account", ttl="0")
+        available_cash = float(df_acc['Cash'].iloc[0])
+    except:
+        # במידה ולא מצא את הטאב, מחפש עמודה בשם 'מזומן' בגיליון הראשי או משתמש בערך הידוע האחרון
+        if 'מזומן' in df.columns:
+            available_cash = pd.to_numeric(df['מזומן'], errors='coerce').iloc[0]
+        else:
+            available_cash = 5732.40 
+
+    # טיפול בתאריכים ומספרים בטריידים
     for date_col in ['Entry_Date', 'Exit_Date']:
         if date_col in df.columns:
             df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce').dt.date
@@ -35,8 +47,8 @@ try:
     closed_trades = df[df['Exit_Price'] > 0].copy().sort_values(by='Exit_Date', ascending=False)
 
     # --- SIDEBAR: נתוני חשבון ומחשבון ---
-    st.sidebar.header("⚙️ נתוני חשבון")
-    available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01)
+    st.sidebar.header("⚙️ נתוני חשבון (מהטבלה)")
+    st.sidebar.metric("מזומן פנוי", f"${available_cash:,.2f}")
     
     # מחשבון גודל פוזיציה
     st.sidebar.divider()
@@ -53,9 +65,9 @@ try:
         if final_qty > 0:
             st.sidebar.success(f"✅ כמות לקנייה: {final_qty} מניות")
             st.sidebar.write(f"💰 עלות: ${final_qty * entry_p:,.2f}")
-        else: st.sidebar.error("אין מספיק מזומן!")
+        else: st.sidebar.error("אין מספיק מזומן פנוי!")
 
-    # --- משיכת נתוני שוק ---
+    # --- משיכת נתוני שוק לייב ---
     open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique()]
     market_data = {}
     if open_tickers:
@@ -69,7 +81,7 @@ try:
                 }
             except: continue
 
-    # --- SIDEBAR: פוזיציות בזמן אמת ---
+    # --- SIDEBAR: פוזיציות וביצועים ---
     st.sidebar.divider()
     st.sidebar.subheader("📈 פוזיציות פתוחות (Live)")
     market_value_stocks = 0
@@ -88,19 +100,17 @@ try:
             p_color = "#00c853" if pnl >= 0 else "#ff4b4b"
             st.sidebar.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
 
-    # סיכומי רווח/הפסד
     st.sidebar.divider()
     total_realized_pnl = closed_trades['PnL'].sum()
-    st.sidebar.metric("PnL ממומש (סגור)", f"${total_realized_pnl:,.2f}")
+    st.sidebar.metric("PnL ממומש (מצטבר)", f"${total_realized_pnl:,.2f}")
     
     u_color = "#00c853" if total_unrealized_pnl >= 0 else "#ff4b4b"
-    st.sidebar.markdown(f"**Unrealized P/L:** <span style='color:{u_color};'>${total_unrealized_pnl:,.2f}</span>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"**PnL לא ממומש:** <span style='color:{u_color};'>${total_unrealized_pnl:,.2f}</span>", unsafe_allow_html=True)
 
     # שווי כולל
     total_val = market_value_stocks + available_cash
-    diff = total_val - initial_value_dec_25
     st.sidebar.divider()
-    st.sidebar.write(f"### שווי תיק: ${total_val:,.2f}")
+    st.sidebar.metric("שווי תיק כולל", f"${total_val:,.2f}", delta=f"{total_val - initial_value_dec_25:,.2f}$")
     
     # --- תצוגה מרכזית ---
     st.link_button("📂 פתח גיליון גוגל לעדכון", SHEET_URL, use_container_width=True, type="primary")
