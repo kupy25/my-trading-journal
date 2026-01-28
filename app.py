@@ -8,57 +8,55 @@ import plotly.express as px
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
+# הקישור לגיליון שלך
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 initial_value_dec_25 = 44302.55
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. קריאת נתונים וניקוי כותרות
+    # 1. קריאת נתונים (ללא ניקוי כותרות אגרסיבי כדי לא לפספס את עמודה L)
     df = conn.read(ttl="0")
-    df.columns = df.columns.str.strip()
-
-    # 2. שליפת מזומן בסיס (מחפש בעמודה L כפי שמופיע בצילום המסך)
-    base_cash = 0.0
-    # חיפוש עמודה שנקראת Cash_Base או מכילה 'מזומן'
-    cash_col = [c for c in df.columns if 'Cash' in c or 'מזומן' in c]
     
-    if cash_col:
-        # לוקח את הערך הכי גבוה בעמודה (כדי למצוא את ה-4,957.18 גם אם יש שורות ריקות)
-        cash_values = pd.to_numeric(df[cash_col[0]], errors='coerce').dropna()
-        if not cash_values.empty:
-            base_cash = float(cash_values.max())
+    # 2. שליפת מזומן בסיס מעמודה L (Cash_Base)
+    base_cash = 0.0
+    if 'Cash_Base' in df.columns:
+        # לוקח את הערך המספרי הראשון בעמודה L
+        val = pd.to_numeric(df['Cash_Base'], errors='coerce').dropna()
+        if not val.empty:
+            base_cash = float(val.iloc[0])
 
-    # 3. המרת עמודות למספרים (שימוש בשמות המדויקים מהגיליון שלך)
-    # שימוש ב-fillna(0) כדי למנוע טעויות חישוב בטריידים פתוחים
+    # 3. המרת עמודות למספרים לחישובים (שימוש בשמות המדויקים מהגיליון שלך)
     cols_to_fix = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'עלות יציאה', 'PnL']
     for col in cols_to_fix:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # הפרדה לפתוחים וסגורים
+    # 4. הפרדה לפתוחים וסגורים
+    # פתוח = מחיר יציאה הוא 0 ויש שם למניה
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull())].copy()
+    # סגור = מחיר יציאה גדול מ-0
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # --- חישוב מזומן דינמי אוטומטי ---
-    # קניות: סכום עלות הכניסה של כל המניות שכרגע בתיק
-    total_spent_on_open = open_trades['עלות כניסה'].sum()
+    # --- חישוב מזומן דינמי אוטומטי (הבקשה שלך) ---
+    # א. סכום הכסף שמושקע כרגע (יוצא מהמזומן)
+    total_invested = open_trades['עלות כניסה'].sum()
     
-    # מכירות: סכום עלות היציאה של כל מה שמכרת (הכסף שחזר לקופה)
-    total_received_from_closed = closed_trades['עלות יציאה'].sum()
+    # ב. סכום הכסף שחזר ממכירות (נכנס למזומן)
+    total_returned = closed_trades['עלות יציאה'].sum()
     
-    # הנוסחה: בסיס פחות קניות פלוס מכירות
-    current_cash = base_cash - total_spent_on_open + total_received_from_closed
+    # ג. היתרה הנוכחית: בסיס פחות קניות פלוס מכירות
+    current_cash = base_cash - total_invested + total_returned
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ נתוני חשבון")
     
-    # הצגת המזומן
+    # תצוגת המזומן המחושב
     st.sidebar.metric("מזומן פנוי (דינמי)", f"${current_cash:,.2f}")
-    st.sidebar.caption(f"בסיס בגיליון: ${base_cash:,.2f}")
+    st.sidebar.caption(f"מזומן בסיס בגיליון: ${base_cash:,.2f}")
     
     if base_cash == 0:
-        st.sidebar.error("⚠️ המערכת לא מוצאת את מזומן הבסיס בעמודה L. וודא שהכותרת היא Cash_Base.")
+        st.sidebar.error("⚠️ לא נמצא בסיס מזומן בעמודה L. וודא שהכותרת היא Cash_Base.")
 
     # מחשבון גודל פוזיציה
     st.sidebar.divider()
@@ -72,9 +70,9 @@ try:
         qty = min(int(risk_per_trade / (e_p - s_p)), int(current_cash / e_p))
         if qty > 0:
             st.sidebar.success(f"כמות: {qty} | עלות: ${qty*e_p:,.2f}")
-        else: st.sidebar.warning("אין מספיק מזומן פנוי לטרייד הזה")
+        else: st.sidebar.warning("אין מספיק מזומן פנוי")
 
-    # --- פוזיציות לייב ב-Sidebar ---
+    # --- פוזיציות לייב ---
     st.sidebar.divider()
     st.sidebar.subheader("📈 פוזיציות (Live)")
     tickers = open_trades['Ticker'].dropna().unique()
@@ -84,7 +82,6 @@ try:
         try:
             data = yf.download(list(tickers), period="1d", progress=False)['Close']
             for t in tickers:
-                # טיפול במקרה של מניה בודדת או רשימה
                 curr = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
                 t_rows = open_trades[open_trades['Ticker'] == t]
                 val = (curr * t_rows['Qty']).sum()
@@ -94,7 +91,7 @@ try:
                 st.sidebar.write(f"**{t}:** ${val:,.2f}")
                 color = "#00c853" if pnl >= 0 else "#ff4b4b"
                 st.sidebar.markdown(f"<p style='color:{color}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
-        except: st.sidebar.write("טוען נתוני שוק...")
+        except: st.sidebar.write("ממתין לנתוני שוק...")
 
     # שווי תיק כולל
     total_portfolio = market_val_total + current_cash
@@ -103,7 +100,7 @@ try:
                       delta=f"${total_portfolio - initial_value_dec_25:,.2f}")
 
     # --- תצוגה מרכזית ---
-    st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
+    st.link_button("📂 פתח גיליון לעדכון טריידים", SHEET_URL, use_container_width=True, type="primary")
     
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     with t1:
