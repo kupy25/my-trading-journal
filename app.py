@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 from streamlit_gsheets import GSheetsConnection
 import plotly.express as px
+import datetime
 
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
@@ -10,18 +11,20 @@ st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
+# --- נתוני יסוד ---
+initial_value_dec_25 = 44302.55
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
+    # קריאת הנתונים
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # טיפול בתאריכים
+    # טיפול בתאריכים ומספרים
     for date_col in ['Entry_Date', 'Exit_Date']:
         if date_col in df.columns:
             df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce').dt.date
 
-    # המרת עמודות למספרים
     numeric_cols = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'עלות יציאה', 'PnL']
     for col in numeric_cols:
         if col in df.columns:
@@ -31,8 +34,26 @@ try:
     open_trades = df[df['Exit_Price'] == 0].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy().sort_values(by='Exit_Date', ascending=False)
 
-    # חישוב PnL ממומש (Realized)
-    total_realized_pnl = closed_trades['PnL'].sum()
+    # --- SIDEBAR: נתוני חשבון ומחשבון ---
+    st.sidebar.header("⚙️ נתוני חשבון")
+    available_cash = st.sidebar.number_input("מזומן פנוי בחשבון ($)", value=5732.40, step=0.01)
+    
+    # מחשבון גודל פוזיציה
+    st.sidebar.divider()
+    st.sidebar.subheader("🧮 מחשבון טרייד חדש")
+    calc_ticker = st.sidebar.text_input("טיקר לבדיקה", value="").strip().upper()
+    entry_p = st.sidebar.number_input("מחיר כניסה ($)", min_value=0.0, step=0.01)
+    stop_p = st.sidebar.number_input("סטופ לוס ($)", min_value=0.0, step=0.01)
+    risk_pct = st.sidebar.slider("סיכון מהתיק (%)", 0.25, 2.0, 1.0, 0.25)
+
+    if calc_ticker and entry_p > stop_p:
+        money_at_risk = initial_value_dec_25 * (risk_pct / 100)
+        risk_per_share = entry_p - stop_p
+        final_qty = min(int(money_at_risk / risk_per_share), int(available_cash / entry_p))
+        if final_qty > 0:
+            st.sidebar.success(f"✅ כמות לקנייה: {final_qty} מניות")
+            st.sidebar.write(f"💰 עלות: ${final_qty * entry_p:,.2f}")
+        else: st.sidebar.error("אין מספיק מזומן!")
 
     # --- משיכת נתוני שוק ---
     open_tickers = [str(t).strip().upper() for t in open_trades['Ticker'].dropna().unique()]
@@ -48,42 +69,49 @@ try:
                 }
             except: continue
 
-    # --- Sidebar Summary ---
-    st.sidebar.header("⚙️ סיכום ביצועים")
-    
-    # הצגת PnL ממומש (Realized)
-    r_color = "#00c853" if total_realized_pnl >= 0 else "#ff4b4b"
-    st.sidebar.metric("PnL ממומש (סגור)", f"${total_realized_pnl:,.2f}", delta_color="normal")
-    st.sidebar.markdown(f"<p style='color:{r_color}; font-size:12px; margin-top:-15px;'>סה\"כ רווח/הפסד מטריידים שנסגרו</p>", unsafe_allow_html=True)
-    
+    # --- SIDEBAR: פוזיציות בזמן אמת ---
     st.sidebar.divider()
-    
-    # חישוב PnL לא ממומש (Live)
-    total_unrealized_pnl = 0
+    st.sidebar.subheader("📈 פוזיציות פתוחות (Live)")
     market_value_stocks = 0
+    total_unrealized_pnl = 0
+    
     for _, row in open_trades.iterrows():
         t = str(row['Ticker']).strip().upper()
         if t in market_data:
             curr = market_data[t]['curr']
-            total_unrealized_pnl += (curr - row['Entry_Price']) * row['Qty']
-            market_value_stocks += curr * row['Qty']
+            pnl = (curr - row['Entry_Price']) * row['Qty']
+            pos_val = curr * row['Qty']
+            market_value_stocks += pos_val
+            total_unrealized_pnl += pnl
+            
+            st.sidebar.write(f"**{t}:** {pos_val:,.2f}$")
+            p_color = "#00c853" if pnl >= 0 else "#ff4b4b"
+            st.sidebar.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
 
-    u_color = "#00c853" if total_unrealized_pnl >= 0 else "#ff4b4b"
-    st.sidebar.metric("PnL לא ממומש (לייב)", f"${total_unrealized_pnl:,.2f}")
-    
+    # סיכומי רווח/הפסד
     st.sidebar.divider()
-    st.link_button("📂 פתח גיליון גוגל לעדכון", SHEET_URL, use_container_width=True, type="primary")
+    total_realized_pnl = closed_trades['PnL'].sum()
+    st.sidebar.metric("PnL ממומש (סגור)", f"${total_realized_pnl:,.2f}")
+    
+    u_color = "#00c853" if total_unrealized_pnl >= 0 else "#ff4b4b"
+    st.sidebar.markdown(f"**Unrealized P/L:** <span style='color:{u_color};'>${total_unrealized_pnl:,.2f}</span>", unsafe_allow_html=True)
 
+    # שווי כולל
+    total_val = market_value_stocks + available_cash
+    diff = total_val - initial_value_dec_25
+    st.sidebar.divider()
+    st.sidebar.write(f"### שווי תיק: ${total_val:,.2f}")
+    
     # --- תצוגה מרכזית ---
+    st.link_button("📂 פתח גיליון גוגל לעדכון", SHEET_URL, use_container_width=True, type="primary")
+    
     tab1, tab2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
 
     with tab1:
-        st.subheader("פוזיציות פעילות")
         cols_open = ['Ticker', 'Entry_Date', 'Qty', 'Entry_Price', 'עלות כניסה', 'סיבת כניסה']
         st.dataframe(open_trades[[c for c in cols_open if c in open_trades.columns]], use_container_width=True)
 
     with tab2:
-        st.subheader("היסטוריית עסקאות")
         cols_closed = [
             'Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 
             'עלות כניסה', 'Exit_Price', 'עלות יציאה', 'PnL', 'סיבת יציאה'
