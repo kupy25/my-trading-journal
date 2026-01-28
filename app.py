@@ -75,10 +75,10 @@ try:
         
         open_trades = open_trades.merge(pd.DataFrame(live_data_list), on='Ticker')
 
-    # --- SIDEBAR (ארגון מחדש) ---
+    # --- SIDEBAR (מעוצב מחדש) ---
     st.sidebar.header("⚙️ נתוני חשבון")
     
-    # בלוק 1: שווי ומזומן
+    # שווי ומזומן
     total_portfolio = market_val_total + CASH_NOW
     portfolio_diff = total_portfolio - initial_portfolio_value
     diff_color = "#00c853" if portfolio_diff >= 0 else "#ff4b4b"
@@ -88,18 +88,23 @@ try:
     st.sidebar.write(f"## ${total_portfolio:,.2f}")
     st.sidebar.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if portfolio_diff >= 0 else ''}{portfolio_diff:,.2f}$</p>", unsafe_allow_html=True)
     
-    # בלוק 2: מחשבון
+    # מחשבון טרייד - כפתור פתיחה צף (Pop-over)
     st.sidebar.divider()
-    st.sidebar.subheader("🧮 מחשבון טרייד")
-    calc_t = st.sidebar.text_input("טיקר לבדיקה", "").upper()
-    e_p = st.sidebar.number_input("מחיר כניסה $", value=0.0)
-    s_p = st.sidebar.number_input("סטופ לוס $", value=0.0)
-    if calc_t and e_p > s_p:
-        qty = min(int((initial_portfolio_value * 0.01) / (e_p - s_p)), int(CASH_NOW / e_p))
-        st.sidebar.success(f"כמות: {qty} | עלות: ${qty*e_p:,.2f}")
+    with st.sidebar.popover("🧮 מחשבון טרייד חדש", use_container_width=True):
+        st.subheader("מחשבון גודל פוזיציה")
+        calc_t = st.text_input("טיקר", "").upper()
+        e_p = st.number_input("מחיר כניסה $", value=0.0, step=0.01)
+        s_p = st.number_input("סטופ לוס $", value=0.0, step=0.01)
+        risk_pct = st.slider("סיכון מהתיק %", 0.25, 2.0, 1.0, 0.25)
+        
+        if calc_t and e_p > s_p:
+            risk_amt = initial_portfolio_value * (risk_pct / 100)
+            qty = min(int(risk_amt / (e_p - s_p)), int(CASH_NOW / e_p))
+            st.success(f"כמות לקנייה: {qty}")
+            st.write(f"💰 עלות כוללת: ${qty*e_p:,.2f}")
+            st.write(f"💸 סיכון דולרי: ${qty*(e_p-s_p):,.2f}")
 
-    # בלוק 3: פוזיציות לייב (החלק שחשוב לראות)
-    st.sidebar.divider()
+    # פוזיציות לייב
     st.sidebar.subheader("📈 פוזיציות (Live)")
     if not open_trades.empty:
         for _, row in open_trades.iterrows():
@@ -107,7 +112,7 @@ try:
             st.sidebar.write(f"**{row['Ticker']}:** ${row['Market_Value']:,.2f}")
             st.sidebar.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$ ({row['PnL_Pct']:.2f}%)</p>", unsafe_allow_html=True)
 
-    # בלוק 4: עמלות (בתחתית)
+    # עמלות בתחתית
     st.sidebar.divider()
     st.sidebar.caption("📉 עלויות מסחר מצטברות 2026:")
     st.sidebar.write(f"**${total_annual_fees:,.2f}**")
