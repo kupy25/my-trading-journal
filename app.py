@@ -62,18 +62,11 @@ try:
             curr = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
             val = curr * row['Qty']
             pnl_usd = (val - row['עלות כניסה']) - row['temp_fee']
-            
-            # חישוב אחוז רווח/הפסד מהמחיר הממוצע
             pnl_pct = ((curr - row['Entry_Price']) / row['Entry_Price']) * 100
             
             market_val_total += val
             total_unrealized_pnl += pnl_usd
-            live_data_list.append({
-                'Ticker': t, 
-                'Market_Value': val, 
-                'PnL_Net': pnl_usd, 
-                'PnL_Pct': pnl_pct
-            })
+            live_data_list.append({'Ticker': t, 'Market_Value': val, 'PnL_Net': pnl_usd, 'PnL_Pct': pnl_pct})
         
         open_trades = open_trades.merge(pd.DataFrame(live_data_list), on='Ticker')
 
@@ -96,8 +89,8 @@ try:
     st.sidebar.subheader("📈 פוזיציות (Live)")
     if not open_trades.empty:
         for _, row in open_trades.iterrows():
-            st.sidebar.write(f"**{row['Ticker']}:** ${row['Market_Value']:,.2f}")
             p_color = "#00c853" if row['PnL_Net'] >= 0 else "#ff4b4b"
+            st.sidebar.write(f"**{row['Ticker']}:** ${row['Market_Value']:,.2f}")
             st.sidebar.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$ ({row['PnL_Pct']:.2f}%)</p>", unsafe_allow_html=True)
 
     # סיכום תיק
@@ -116,10 +109,17 @@ try:
     
     with t1:
         if not open_trades.empty:
-            # הוספת עמודת אחוזים לטבלה
             df_open_display = open_trades[['Ticker', 'Entry_Date', 'Qty', 'Entry_Price', 'Market_Value', 'PnL_Net', 'PnL_Pct', 'סיבת כניסה']].copy()
             df_open_display['PnL_Pct'] = df_open_display['PnL_Pct'].map("{:.2f}%".format)
             st.dataframe(df_open_display.sort_values('Market_Value', ascending=False), use_container_width=True, hide_index=True)
+            
+            # גרף פאי - נמצא רק כאן!
+            st.divider()
+            st.subheader("🍕 התפלגות הון מושקע")
+            chart_data = open_trades[['Ticker', 'Market_Value']].copy()
+            chart_data = pd.concat([chart_data, pd.DataFrame([{'Ticker': 'CASH', 'Market_Value': CASH_NOW}])], ignore_index=True)
+            fig = px.pie(chart_data, values='Market_Value', names='Ticker', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig, use_container_width=True)
         else: st.info("אין פוזיציות פתוחות.")
 
     with t2:
@@ -128,20 +128,10 @@ try:
                 closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].sort_values('Exit_Date', ascending=False), 
                 use_container_width=True, hide_index=True
             )
-            # סיכום רווח ממומש
             total_realized = closed_trades['PnL'].sum()
             r_color = "green" if total_realized >= 0 else "red"
             st.markdown(f"### סך רווח ממומש: :{r_color}[${total_realized:,.2f}]")
         else: st.info("טרם נסגרו טריידים.")
-
-    # --- גרף פאי בתחתית ---
-    if not open_trades.empty:
-        st.divider()
-        st.subheader("🍕 התפלגות הון מושקע")
-        chart_data = open_trades[['Ticker', 'Market_Value']].copy()
-        chart_data = pd.concat([chart_data, pd.DataFrame([{'Ticker': 'CASH', 'Market_Value': CASH_NOW}])], ignore_index=True)
-        fig = px.pie(chart_data, values='Market_Value', names='Ticker', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
-        st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
