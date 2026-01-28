@@ -35,11 +35,8 @@ try:
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
     # --- חישוב עמלות מצטברות ---
-    # עמלות על טריידים פתוחים (רק קנייה)
     fees_on_open = raw_open['Qty'].apply(calculate_trade_fee).sum()
-    # עמלות על טריידים סגורים (קנייה + מכירה)
-    fees_on_closed = closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2 # הערכה: קנייה ומכירה
-    # סך כל העמלות השנתי
+    fees_on_closed = (closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2) 
     total_annual_fees = fees_on_open + fees_on_closed
 
     # --- איחוד פוזיציות גלובלי ---
@@ -78,11 +75,20 @@ try:
         
         open_trades = open_trades.merge(pd.DataFrame(live_data_list), on='Ticker')
 
-    # --- SIDEBAR ---
+    # --- SIDEBAR (ארגון מחדש) ---
     st.sidebar.header("⚙️ נתוני חשבון")
-    st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
     
-    # מחשבון
+    # בלוק 1: שווי ומזומן
+    total_portfolio = market_val_total + CASH_NOW
+    portfolio_diff = total_portfolio - initial_portfolio_value
+    diff_color = "#00c853" if portfolio_diff >= 0 else "#ff4b4b"
+    
+    st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
+    st.sidebar.write(f"### שווי תיק כולל")
+    st.sidebar.write(f"## ${total_portfolio:,.2f}")
+    st.sidebar.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if portfolio_diff >= 0 else ''}{portfolio_diff:,.2f}$</p>", unsafe_allow_html=True)
+    
+    # בלוק 2: מחשבון
     st.sidebar.divider()
     st.sidebar.subheader("🧮 מחשבון טרייד")
     calc_t = st.sidebar.text_input("טיקר לבדיקה", "").upper()
@@ -92,20 +98,19 @@ try:
         qty = min(int((initial_portfolio_value * 0.01) / (e_p - s_p)), int(CASH_NOW / e_p))
         st.sidebar.success(f"כמות: {qty} | עלות: ${qty*e_p:,.2f}")
 
-    # סיכום תיק
-    total_portfolio = market_val_total + CASH_NOW
-    portfolio_diff = total_portfolio - initial_portfolio_value
+    # בלוק 3: פוזיציות לייב (החלק שחשוב לראות)
     st.sidebar.divider()
-    st.sidebar.subheader("💰 שווי תיק כולל")
-    st.sidebar.write(f"## ${total_portfolio:,.2f}")
-    diff_color = "#00c853" if portfolio_diff >= 0 else "#ff4b4b"
-    st.sidebar.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if portfolio_diff >= 0 else ''}{portfolio_diff:,.2f}$</p>", unsafe_allow_html=True)
-    
-    # נתון עמלות מצטבר ב-Sidebar
+    st.sidebar.subheader("📈 פוזיציות (Live)")
+    if not open_trades.empty:
+        for _, row in open_trades.iterrows():
+            p_color = "#00c853" if row['PnL_Net'] >= 0 else "#ff4b4b"
+            st.sidebar.write(f"**{row['Ticker']}:** ${row['Market_Value']:,.2f}")
+            st.sidebar.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$ ({row['PnL_Pct']:.2f}%)</p>", unsafe_allow_html=True)
+
+    # בלוק 4: עמלות (בתחתית)
     st.sidebar.divider()
-    st.sidebar.write("📉 **עלויות מסחר מצטברות:**")
-    st.sidebar.write(f"### ${total_annual_fees:,.2f}")
-    st.sidebar.caption("כולל עמלות קנייה ומכירה שבוצעו השנה")
+    st.sidebar.caption("📉 עלויות מסחר מצטברות 2026:")
+    st.sidebar.write(f"**${total_annual_fees:,.2f}**")
 
     # --- מסך ראשי ---
     st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
@@ -132,15 +137,13 @@ try:
                 closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].sort_values('Exit_Date', ascending=False), 
                 use_container_width=True, hide_index=True
             )
-            
-            c_col1, c_col2 = st.columns(2)
-            with c_col1:
+            c1, c2 = st.columns(2)
+            with c1:
                 total_realized = closed_trades['PnL'].sum()
                 r_color = "green" if total_realized >= 0 else "red"
                 st.markdown(f"### סך רווח ממומש: :{r_color}[${total_realized:,.2f}]")
-            with c_col2:
+            with c2:
                 st.markdown(f"### סך עמלות ממומשות: :red[${fees_on_closed:,.2f}]")
-        else: st.info("טרם נסגרו טריידים.")
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
