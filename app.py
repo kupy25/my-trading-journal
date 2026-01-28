@@ -16,7 +16,7 @@ def calculate_trade_fee(qty):
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- פונקציית ליבה לשליפת נתונים (משותפת) ---
+# --- פונקציית ליבה לשליפת נתונים ---
 def fetch_processed_data():
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
@@ -54,6 +54,41 @@ def fetch_processed_data():
 st.sidebar.header("⚙️ ניהול חשבון")
 st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
 
+# --- רענון שקט לנתוני התיק ב-SIDEBAR ---
+with st.sidebar:
+    @st.fragment(run_every=10)
+    def sidebar_live_metrics():
+        open_trades, closed_trades = fetch_processed_data()
+        
+        # חישובים לסיכום
+        mkt_total = open_trades['Market_Value'].sum() if not open_trades.empty else 0
+        total_portfolio = mkt_total + CASH_NOW
+        diff = total_portfolio - initial_portfolio_value
+        fees_closed = (closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2)
+        total_fees = (open_trades['temp_fee'].sum() if not open_trades.empty else 0) + fees_closed
+        
+        # תצוגת שווי ורווח/הפסד
+        st.write(f"### שווי תיק כולל")
+        st.write(f"## ${total_portfolio:,.2f}")
+        diff_color = "#00c853" if diff >= 0 else "#ff4b4b"
+        st.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff >= 0 else ''}{diff:,.2f}$</p>", unsafe_allow_html=True)
+        
+        # תצוגת עמלות שליליות באדום
+        st.write("📉 **עלויות מסחר מצטברות:**")
+        st.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
+        
+        st.divider()
+        # פוזיציות לייב בסידבר
+        if not open_trades.empty:
+            st.subheader("📈 פוזיציות (Live)")
+            for _, row in open_trades.iterrows():
+                p_color = "#00c853" if row['PnL_Net'] >= 0 else "#ff4b4b"
+                st.write(f"**{row['Ticker']}:** ${row['Market_Value']:,.2f}")
+                st.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$ ({row['PnL_Pct']:.2f}%)</p>", unsafe_allow_html=True)
+    
+    sidebar_live_metrics()
+
+# מחשבון סטטי (נמצא בסידבר אך מחוץ לפרגמנט)
 with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True):
     st.subheader("מחשבון גודל פוזיציה")
     c_ticker = st.text_input("טיקר", key="calc_t")
@@ -61,32 +96,7 @@ with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True
     c_stop = st.number_input("סטופ $", value=0.0, key="calc_s")
     if c_ticker and c_entry > c_stop:
         q = min(int((initial_portfolio_value * 0.01) / (c_entry - c_stop)), int(CASH_NOW / c_entry))
-        st.success(f"כמות: {q}")
-
-# --- רענון שקט ל-SIDEBAR (הזרקה נכונה של Fragment) ---
-with st.sidebar:
-    @st.fragment(run_every=10)
-    def sidebar_live_update():
-        open_trades, closed_trades = fetch_processed_data()
-        st.divider()
-        if not open_trades.empty:
-            st.subheader("📈 פוזיציות (Live)")
-            for _, row in open_trades.iterrows():
-                p_color = "#00c853" if row['PnL_Net'] >= 0 else "#ff4b4b"
-                st.write(f"**{row['Ticker']}:** ${row['Market_Value']:,.2f}")
-                st.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$ ({row['PnL_Pct']:.2f}%)</p>", unsafe_allow_html=True)
-            
-            total_portfolio = open_trades['Market_Value'].sum() + CASH_NOW
-            diff = total_portfolio - initial_portfolio_value
-            fees_closed = (closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2)
-            total_fees = open_trades['temp_fee'].sum() + fees_closed
-            
-            st.divider()
-            st.write(f"### שווי תיק: ${total_portfolio:,.2f}")
-            st.markdown(f"<p style='color:{'#00c853' if diff >= 0 else '#ff4b4b'}; font-weight:bold;'>{'+' if diff >= 0 else ''}{diff:,.2f}$</p>", unsafe_allow_html=True)
-            st.markdown(f"עמלות: <span style='color:red;'>-${total_fees:,.2f}</span>", unsafe_allow_html=True)
-    
-    sidebar_live_update()
+        st.success(f"כמות: {q} | עלות: ${q*c_entry:,.2f}")
 
 # --- רענון שקט למסך הראשי ---
 @st.fragment(run_every=10)
