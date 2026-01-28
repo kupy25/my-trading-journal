@@ -9,7 +9,7 @@ import datetime
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
-# הקישור הישיר לגיליון שלך
+# הקישור לגיליון
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
 # --- נתוני יסוד ---
@@ -17,25 +17,29 @@ initial_value_dec_25 = 44302.55
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. קריאת נתוני הטריידים מהלשונית הראשית
+    # 1. קריאת נתוני הטריידים
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # 2. ניהול מזומן מלשונית Account
+    # 2. ניהול מזומן פנוי - שיפור מנגנון הקריאה
+    available_cash = 0.0
+    cash_info = ""
     try:
+        # קריאת כל הגיליונות כדי לוודא ש-Account קיים
         df_acc = conn.read(worksheet="Account", ttl="0")
         df_acc.columns = df_acc.columns.str.strip()
+        
         if 'Cash' in df_acc.columns:
             available_cash = float(df_acc['Cash'].iloc[0])
-            cash_status = "✅ נמשך מהטבלה"
+            cash_info = "✅ נתונים מסונכרנים לגיליון Account"
         else:
             available_cash = 5732.40
-            cash_status = "⚠️ עמודת Cash לא נמצאה"
-    except:
+            cash_info = "❌ עמודת 'Cash' לא נמצאה בגיליון Account"
+    except Exception as e:
         available_cash = 5732.40
-        cash_status = "⚠️ לשונית Account לא נמצאה"
+        cash_info = f"⚠️ שגיאה בגישה לגיליון Account: {str(e)}"
 
-    # טיפול בתאריכים ומספרים בטריידים
+    # טיפול בתאריכים ומספרים
     for date_col in ['Entry_Date', 'Exit_Date']:
         if date_col in df.columns:
             df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce').dt.date
@@ -51,8 +55,11 @@ try:
 
     # --- SIDEBAR: נתוני חשבון ומחשבון ---
     st.sidebar.header("⚙️ נתוני חשבון")
-    st.sidebar.metric("מזומן פנוי", f"${available_cash:,.2f}", help=cash_status)
+    st.sidebar.metric("מזומן פנוי", f"${available_cash:,.2f}", help=cash_info)
     
+    if "⚠️" in cash_info or "❌" in cash_info:
+        st.sidebar.warning(cash_info)
+
     # מחשבון גודל פוזיציה
     st.sidebar.divider()
     st.sidebar.subheader("🧮 מחשבון טרייד חדש")
@@ -67,7 +74,8 @@ try:
         final_qty = min(int(money_at_risk / risk_per_share), int(available_cash / entry_p))
         if final_qty > 0:
             st.sidebar.success(f"✅ כמות לקנייה: {final_qty} מניות")
-            st.sidebar.write(f"💰 עלות: ${final_qty * entry_p:,.2f}")
+            st.sidebar.write(f"💰 עלות פוזיציה: ${final_qty * entry_p:,.2f}")
+            st.sidebar.write(f"📉 סיכון כספי: ${final_qty * risk_per_share:,.2f}")
         else: st.sidebar.error("אין מספיק מזומן פנוי!")
 
     # --- משיכת נתוני שוק לייב ---
