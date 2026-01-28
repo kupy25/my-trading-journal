@@ -9,7 +9,7 @@ import datetime
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st.title("📊 ניהול תיק ומעקב טריידים - 2026")
 
-# הקישור לגיליון
+# הקישור לגיליון שלך
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
 # --- נתוני יסוד ---
@@ -17,40 +17,20 @@ initial_value_dec_25 = 44302.55
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. קריאת נתוני הטריידים מהגיליון הראשי
+    # קריאת הנתונים מהגיליון הראשי
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # 2. ניהול מזומן פנוי - שיטה חסינה יותר
-    available_cash = 5732.40 # ערך ברירת מחדל למקרה של תקלה
-    cash_info = "🔍 מנסה להתחבר..."
+    # --- ניהול מזומן פנוי (משיכה ישירה מהגיליון הראשי) ---
+    if 'מזומן_פנוי' in df.columns:
+        available_cash = pd.to_numeric(df['מזומן_פנוי'], errors='coerce').iloc[0]
+        cash_status = "✅ המזומן נמשך מעמודת 'מזומן_פנוי'"
+    else:
+        # אם העמודה לא קיימת, נשתמש בערך האחרון שראינו בצילום המסך שלך
+        available_cash = 4957.18 
+        cash_status = "⚠️ עמודת 'מזומן_פנוי' לא נמצאה. מציג ערך ידני."
 
-    try:
-        # קריאת כל הגיליונות בקובץ וחיפוש הטאב Account בתוך הקוד
-        # זה מונע את שגיאת ה-400 שקשורה לבקשת Worksheet ספציפי מה-API
-        all_sheets = conn.read(ttl="0", worksheet=None) 
-        
-        # חיפוש טאב ששמו מכיל 'Account' (לא רגיש לאותיות גדולות/קטנות)
-        target_tab = None
-        for sheet_name in all_sheets.keys():
-            if 'account' in sheet_name.lower():
-                target_tab = all_sheets[sheet_name]
-                break
-        
-        if target_tab is not None:
-            target_tab.columns = target_tab.columns.str.strip()
-            if 'Cash' in target_tab.columns:
-                available_cash = float(target_tab['Cash'].iloc[0])
-                cash_info = "✅ המזומן נמשך בהצלחה מגיליון Account"
-            else:
-                cash_info = "❌ לא נמצאה עמודת 'Cash' בטאב Account"
-        else:
-            cash_info = "❌ לא נמצא טאב בשם Account בקובץ"
-            
-    except Exception as e:
-        cash_info = f"⚠️ שגיאה טכנית: {str(e)}"
-
-    # טיפול בתאריכים ומספרים בטריידים
+    # טיפול בתאריכים ומספרים
     for date_col in ['Entry_Date', 'Exit_Date']:
         if date_col in df.columns:
             df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce').dt.date
@@ -66,12 +46,9 @@ try:
 
     # --- SIDEBAR: נתוני חשבון ומחשבון ---
     st.sidebar.header("⚙️ נתוני חשבון")
-    st.sidebar.metric("מזומן פנוי", f"${available_cash:,.2f}", help=cash_info)
-    
-    if "❌" in cash_info or "⚠️" in cash_info:
-        st.sidebar.warning(cash_info)
-    elif "✅" in cash_info:
-        st.sidebar.caption(cash_info)
+    st.sidebar.metric("מזומן פנוי", f"${available_cash:,.2f}", help=cash_status)
+    if "⚠️" in cash_status:
+        st.sidebar.warning("כדי לאוטומט: הוסף עמודת 'מזומן_פנוי' בגיליון הראשי")
 
     # מחשבון גודל פוזיציה
     st.sidebar.divider()
