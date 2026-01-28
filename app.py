@@ -60,25 +60,21 @@ with st.sidebar:
     def sidebar_live_metrics():
         open_trades, closed_trades = fetch_processed_data()
         
-        # חישובים לסיכום
         mkt_total = open_trades['Market_Value'].sum() if not open_trades.empty else 0
         total_portfolio = mkt_total + CASH_NOW
         diff = total_portfolio - initial_portfolio_value
         fees_closed = (closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2)
         total_fees = (open_trades['temp_fee'].sum() if not open_trades.empty else 0) + fees_closed
         
-        # תצוגת שווי ורווח/הפסד
         st.write(f"### שווי תיק כולל")
         st.write(f"## ${total_portfolio:,.2f}")
         diff_color = "#00c853" if diff >= 0 else "#ff4b4b"
         st.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff >= 0 else ''}{diff:,.2f}$</p>", unsafe_allow_html=True)
         
-        # תצוגת עמלות שליליות באדום
         st.write("📉 **עלויות מסחר מצטברות:**")
         st.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
         
         st.divider()
-        # פוזיציות לייב בסידבר
         if not open_trades.empty:
             st.subheader("📈 פוזיציות (Live)")
             for _, row in open_trades.iterrows():
@@ -88,7 +84,6 @@ with st.sidebar:
     
     sidebar_live_metrics()
 
-# מחשבון סטטי (נמצא בסידבר אך מחוץ לפרגמנט)
 with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True):
     st.subheader("מחשבון גודל פוזיציה")
     c_ticker = st.text_input("טיקר", key="calc_t")
@@ -102,7 +97,7 @@ with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True
 @st.fragment(run_every=10)
 def main_content_update():
     open_trades, closed_trades = fetch_processed_data()
-    st.title("📊 דאשבורד מסחר - רענון שקט (10 ש')")
+    st.title("📊 יומן המסחר של אבי")
     st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
     
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
