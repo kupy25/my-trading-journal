@@ -21,23 +21,7 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # --- ניהול מזומן פנוי (תיקון לבעיית ה-NaN) ---
-    available_cash = 0.0
-    cash_status = ""
-    if 'מזומן_פנוי' in df.columns:
-        # ניקוי ערכים ריקים ולקיחת המספר הראשון התקין
-        cash_series = pd.to_numeric(df['מזומן_פנוי'], errors='coerce').dropna()
-        if not cash_series.empty:
-            available_cash = float(cash_series.iloc[0])
-            cash_status = "✅ המזומן נמשך בהצלחה"
-        else:
-            available_cash = 4957.18
-            cash_status = "⚠️ עמודת מזומן ריקה"
-    else:
-        available_cash = 4957.18
-        cash_status = "⚠️ עמודת 'מזומן_פנוי' לא נמצאה"
-
-    # טיפול בתאריכים ומספרים
+    # טיפול בתאריכים ומספרים (חובה לפני חישובי המזומן)
     for date_col in ['Entry_Date', 'Exit_Date']:
         if date_col in df.columns:
             df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce').dt.date
@@ -51,11 +35,34 @@ try:
     open_trades = df[df['Exit_Price'] == 0].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy().sort_values(by='Exit_Date', ascending=False)
 
+    # --- חישוב מזומן דינמי אוטומטי ---
+    # 1. משיכת מזומן הבסיס מהעמודה בגיליון
+    base_cash = 0.0
+    if 'מזומן_פנוי' in df.columns:
+        cash_series = pd.to_numeric(df['מזומן_פנוי'], errors='coerce').dropna()
+        if not cash_series.empty:
+            base_cash = float(cash_series.iloc[0])
+    
+    # 2. חישוב סך עלות הפוזיציות הפתוחות כרגע (כסף ש"נעול" במניות)
+    total_cost_open = open_trades['עלות כניסה'].sum()
+    
+    # 3. חישוב רווח/הפסד ממומש מטריידים שנסגרו (כסף שחזר לקופה עם הרווח/הפסד)
+    # הערה: אנחנו מחשבים את עלות היציאה הכוללת שחזרה לחשבון
+    total_returned_from_closed = closed_trades['עלות יציאה'].sum()
+    
+    # לוגיקת המזומן הפנוי:
+    # המזומן בגיליון מייצג את ההון הנזיל ההתחלתי. 
+    # כל קנייה מורידה ממנו, כל מכירה מחזירה אליו את הסכום עם הרווח/הפסד.
+    current_available_cash = base_cash - total_cost_open + total_returned_from_closed
+
     # --- SIDEBAR: נתוני חשבון ---
     st.sidebar.header("⚙️ נתוני חשבון")
-    st.sidebar.metric("מזומן פנוי", f"${available_cash:,.2f}", help=cash_status)
+    st.sidebar.metric("מזומן פנוי (דינמי)", f"${current_available_cash:,.2f}", 
+                      help="מחושב אוטומטית: מזומן בסיס פחות פוזיציות פתוחות פלוס מכירות")
     
-    # מחשבון גודל פוזיציה (כמו בצילום מסך 18.52.23)
+    st.sidebar.caption(f"מזומן בסיס בגיליון: ${base_cash:,.2f}")
+
+    # מחשבון גודל פוזיציה
     st.sidebar.divider()
     st.sidebar.subheader("🧮 מחשבון טרייד חדש")
     calc_ticker = st.sidebar.text_input("טיקר לבדיקה (למשל: OKE)", value="").strip().upper()
@@ -66,11 +73,11 @@ try:
     if calc_ticker and entry_p > stop_p:
         money_at_risk = initial_value_dec_25 * (risk_pct / 100)
         risk_per_share = entry_p - stop_p
-        final_qty = min(int(money_at_risk / risk_per_share), int(available_cash / entry_p))
+        # המחשבון משתמש במזומן הדינמי כדי להגיד לך אם יש לך מספיק כסף
+        final_qty = min(int(money_at_risk / risk_per_share), int(current_available_cash / entry_p))
         if final_qty > 0:
             st.sidebar.success(f"✅ כמות לקנייה: {final_qty} מניות")
             st.sidebar.write(f"💰 עלות כוללת: ${final_qty * entry_p:,.2f}")
-            st.sidebar.write(f"📉 סיכון כספי: ${final_qty * risk_per_share:,.2f}")
         else: st.sidebar.error("אין מספיק מזומן פנוי!")
 
     # --- משיכת נתוני שוק לייב ---
@@ -87,7 +94,7 @@ try:
                 }
             except: continue
 
-    # --- SIDEBAR: פוזיציות וביצועים (כמו בצילום מסך 18.56.05) ---
+    # --- SIDEBAR: פוזיציות וביצועים ---
     st.sidebar.divider()
     st.sidebar.subheader("📈 פוזיציות פתוחות (Live)")
     market_value_stocks = 0
@@ -114,7 +121,7 @@ try:
     st.sidebar.markdown(f"**PnL לא ממומש:** <span style='color:{u_color};'>${total_unrealized_pnl:,.2f}</span>", unsafe_allow_html=True)
 
     # שווי כולל
-    total_val = market_value_stocks + available_cash
+    total_val = market_value_stocks + current_available_cash
     st.sidebar.divider()
     st.sidebar.metric("שווי תיק כולל", f"${total_val:,.2f}", delta=f"{total_val - initial_value_dec_25:,.2f}$")
     
