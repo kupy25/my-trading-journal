@@ -15,16 +15,16 @@ initial_value_dec_25 = 44302.55
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. קריאת נתונים (ללא ניקוי כותרות אגרסיבי כדי לא לפספס את עמודה L)
+    # 1. קריאת נתונים מהגיליון הראשי
     df = conn.read(ttl="0")
     
-    # 2. שליפת מזומן בסיס מעמודה L (Cash_Base)
+    # 2. שליפת מזומן בסיס מעמודה L (מיקום 11 באינדקס)
+    # אנחנו מחפשים את הערך המספרי הראשון בעמודה L כדי למצוא את ה-4,957.18
     base_cash = 0.0
-    if 'Cash_Base' in df.columns:
-        # לוקח את הערך המספרי הראשון בעמודה L
-        val = pd.to_numeric(df['Cash_Base'], errors='coerce').dropna()
-        if not val.empty:
-            base_cash = float(val.iloc[0])
+    if len(df.columns) >= 12:
+        cash_series = pd.to_numeric(df.iloc[:, 11], errors='coerce').dropna()
+        if not cash_series.empty:
+            base_cash = float(cash_series.iloc[0])
 
     # 3. המרת עמודות למספרים לחישובים (שימוש בשמות המדויקים מהגיליון שלך)
     cols_to_fix = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'עלות יציאה', 'PnL']
@@ -33,30 +33,28 @@ try:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     # 4. הפרדה לפתוחים וסגורים
-    # פתוח = מחיר יציאה הוא 0 ויש שם למניה
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull())].copy()
-    # סגור = מחיר יציאה גדול מ-0
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # --- חישוב מזומן דינמי אוטומטי (הבקשה שלך) ---
-    # א. סכום הכסף שמושקע כרגע (יוצא מהמזומן)
+    # --- חישוב מזומן דינמי אוטומטי ---
+    # סכום הכסף שמושקע כרגע במניות (יוצא מהמזומן)
     total_invested = open_trades['עלות כניסה'].sum()
     
-    # ב. סכום הכסף שחזר ממכירות (נכנס למזומן)
+    # סכום הכסף שחזר ממכירות (נכנס למזומן עם הרווח/הפסד)
     total_returned = closed_trades['עלות יציאה'].sum()
     
-    # ג. היתרה הנוכחית: בסיס פחות קניות פלוס מכירות
+    # הנוסחה: בסיס פחות קניות פלוס מכירות
     current_cash = base_cash - total_invested + total_returned
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ נתוני חשבון")
     
-    # תצוגת המזומן המחושב
+    # תצוגת המזומן הדינמי המעודכן
     st.sidebar.metric("מזומן פנוי (דינמי)", f"${current_cash:,.2f}")
-    st.sidebar.caption(f"מזומן בסיס בגיליון: ${base_cash:,.2f}")
+    st.sidebar.caption(f"מזומן בסיס שנמצא בגיליון: ${base_cash:,.2f}")
     
     if base_cash == 0:
-        st.sidebar.error("⚠️ לא נמצא בסיס מזומן בעמודה L. וודא שהכותרת היא Cash_Base.")
+        st.sidebar.error("⚠️ המערכת לא מזהה את המזומן בעמודה L. ודא שהמספר 4,957.18 נמצא שם.")
 
     # מחשבון גודל פוזיציה
     st.sidebar.divider()
@@ -91,7 +89,7 @@ try:
                 st.sidebar.write(f"**{t}:** ${val:,.2f}")
                 color = "#00c853" if pnl >= 0 else "#ff4b4b"
                 st.sidebar.markdown(f"<p style='color:{color}; margin-top:-15px;'>{'+' if pnl >= 0 else ''}{pnl:,.2f}$</p>", unsafe_allow_html=True)
-        except: st.sidebar.write("ממתין לנתוני שוק...")
+        except: st.sidebar.write("טוען נתוני שוק...")
 
     # שווי תיק כולל
     total_portfolio = market_val_total + current_cash
