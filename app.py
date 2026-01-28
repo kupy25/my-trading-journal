@@ -92,19 +92,18 @@ try:
             color = "#00c853" if row['PnL_Net'] >= 0 else "#ff4b4b"
             st.sidebar.markdown(f"<p style='color:{color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$</p>", unsafe_allow_html=True)
 
-    # סיכום תיק - תיקון הצבע והחץ (PnL הכללי)
+    # סיכום תיק - תיקון הצבע והחץ
     total_portfolio = market_val_total + CASH_NOW
     portfolio_diff = total_portfolio - initial_portfolio_value
     
     st.sidebar.divider()
+    # שימוש ב-delta_color="normal" מבטיח שאדום יהיה לירידה וירוק לעלייה
     st.sidebar.metric(
         label="שווי תיק כולל", 
         value=f"${total_portfolio:,.2f}", 
         delta=f"${portfolio_diff:,.2f}",
-        delta_color="normal" # normal מבטיח שאדום יהיה לירידה וירוק לעלייה
+        delta_color="normal" 
     )
-    
-    st.sidebar.caption(f"רווח/הפסד נטו על הנייר: ${total_unrealized_pnl:,.2f}")
 
     # --- מסך ראשי ---
     st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
@@ -113,14 +112,27 @@ try:
     
     with t1:
         if not open_trades.empty:
+            # hide_index=True מעלים את העמודה השמאלית המיותרת
+            display_cols_open = ['Ticker', 'Entry_Date', 'Qty', 'Entry_Price', 'Market_Value', 'PnL_Net', 'סיבת כניסה']
             st.dataframe(
-                open_trades[['Ticker', 'Entry_Date', 'Qty', 'Entry_Price', 'Market_Value', 'PnL_Net', 'סיבת כניסה']].sort_values('Market_Value', ascending=False), 
-                use_container_width=True, hide_index=True
+                open_trades[display_cols_open].sort_values('Market_Value', ascending=False), 
+                use_container_width=True, 
+                hide_index=True
             )
         else: st.info("אין פוזיציות פתוחות.")
 
     with t2:
-        st.dataframe(closed_trades.sort_values('Exit_Date', ascending=False), use_container_width=True, hide_index=True)
+        if not closed_trades.empty:
+            # הצגת סיבות כניסה ויציאה בטריידים סגורים
+            display_cols_closed = [
+                'Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 
+                'PnL', 'סיבת כניסה', 'סיבת יציאה'
+            ]
+            st.dataframe(
+                closed_trades[display_cols_closed].sort_values('Exit_Date', ascending=False), 
+                use_container_width=True, 
+                hide_index=True
+            )
 
     # --- גרף פאי בתחתית ---
     if not open_trades.empty:
