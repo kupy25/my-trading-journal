@@ -20,9 +20,9 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # פונקציית עמלה (3.5$ + 0.0078$ למניה)
+    # פונקציית עמלה לפי טבלת הברוקר
     def calculate_trade_fee(qty):
-        return 3.50 + (qty * 0.0078) if qty > 0 else 0
+        return 3.50 + (qty * (0.0048 + 0.003)) if qty > 0 else 0
 
     # המרת עמודות למספרים
     numeric_cols = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'עלות יציאה', 'PnL']
@@ -65,11 +65,11 @@ try:
             
             market_val_total += val
             total_unrealized_pnl += pnl
-            live_data_list.append({'Ticker': t, 'Market_Value': val, 'PnL_Net': pnl, 'Curr_Price': curr})
+            live_data_list.append({'Ticker': t, 'Market_Value': val, 'PnL_Net': pnl})
         
         open_trades = open_trades.merge(pd.DataFrame(live_data_list), on='Ticker')
 
-    # --- SIDEBAR (החזרת כל הרכיבים) ---
+    # --- SIDEBAR ---
     st.sidebar.header("⚙️ נתוני חשבון")
     st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
     
@@ -92,10 +92,19 @@ try:
             color = "#00c853" if row['PnL_Net'] >= 0 else "#ff4b4b"
             st.sidebar.markdown(f"<p style='color:{color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$</p>", unsafe_allow_html=True)
 
-    # סיכום תיק
+    # סיכום תיק - תיקון הצבע והחץ (PnL הכללי)
     total_portfolio = market_val_total + CASH_NOW
+    portfolio_diff = total_portfolio - initial_portfolio_value
+    
     st.sidebar.divider()
-    st.sidebar.metric("שווי תיק כולל", f"${total_portfolio:,.2f}", delta=f"${total_unrealized_pnl:,.2f}")
+    st.sidebar.metric(
+        label="שווי תיק כולל", 
+        value=f"${total_portfolio:,.2f}", 
+        delta=f"${portfolio_diff:,.2f}",
+        delta_color="normal" # normal מבטיח שאדום יהיה לירידה וירוק לעלייה
+    )
+    
+    st.sidebar.caption(f"רווח/הפסד נטו על הנייר: ${total_unrealized_pnl:,.2f}")
 
     # --- מסך ראשי ---
     st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
@@ -113,7 +122,7 @@ try:
     with t2:
         st.dataframe(closed_trades.sort_values('Exit_Date', ascending=False), use_container_width=True, hide_index=True)
 
-    # --- גרף פאי בתחתית המסך הראשי ---
+    # --- גרף פאי בתחתית ---
     if not open_trades.empty:
         st.divider()
         st.subheader("🍕 התפלגות הון מושקע")
