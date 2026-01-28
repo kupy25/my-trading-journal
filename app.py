@@ -75,10 +75,10 @@ try:
         
         open_trades = open_trades.merge(pd.DataFrame(live_data_list), on='Ticker')
 
-    # --- SIDEBAR (ארגון מחדש לפי בקשתך) ---
+    # --- SIDEBAR ---
     st.sidebar.header("⚙️ נתוני חשבון")
     
-    # בלוק 1: שווי, מזומן ועמלות (הכל מרוכז למעלה)
+    # שווי ומזומן
     total_portfolio = market_val_total + CASH_NOW
     portfolio_diff = total_portfolio - initial_portfolio_value
     diff_color = "#00c853" if portfolio_diff >= 0 else "#ff4b4b"
@@ -88,10 +88,11 @@ try:
     st.sidebar.write(f"## ${total_portfolio:,.2f}")
     st.sidebar.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if portfolio_diff >= 0 else ''}{portfolio_diff:,.2f}$</p>", unsafe_allow_html=True)
     
-    # המיקום החדש של העמלות - מיד מתחת לשווי התיק
-    st.sidebar.write(f"📉 **עלויות מסחר מצטברות:** `${total_annual_fees:,.2f}`")
+    # הצגת עמלות כשליליות ובאדום
+    st.sidebar.write("📉 **עלויות מסחר מצטברות:**")
+    st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_annual_fees:,.2f}</p>", unsafe_allow_html=True)
 
-    # בלוק 2: מחשבון טרייד (בכפתור פופ-אובר)
+    # מחשבון טרייד
     st.sidebar.divider()
     with st.sidebar.popover("🧮 מחשבון טרייד חדש", use_container_width=True):
         st.subheader("מחשבון גודל פוזיציה")
@@ -106,7 +107,7 @@ try:
             st.success(f"כמות לקנייה: {qty}")
             st.write(f"💰 עלות כוללת: ${qty*e_p:,.2f}")
 
-    # בלוק 3: פוזיציות לייב
+    # פוזיציות לייב
     st.sidebar.subheader("📈 פוזיציות (Live)")
     if not open_trades.empty:
         for _, row in open_trades.iterrows():
@@ -145,7 +146,8 @@ try:
                 r_color = "green" if total_realized >= 0 else "red"
                 st.markdown(f"### סך רווח ממומש: :{r_color}[${total_realized:,.2f}]")
             with c2:
-                st.markdown(f"### סך עמלות ממומשות: :red[${fees_on_closed:,.2f}]")
+                # גם כאן העמלות מופיעות במינוס ובאדום
+                st.markdown(f"### סך עמלות ממומשות: :red[-${fees_on_closed:,.2f}]")
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
