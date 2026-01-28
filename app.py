@@ -21,14 +21,21 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
 
-    # --- ניהול מזומן פנוי (משיכה ישירה מהגיליון הראשי) ---
+    # --- ניהול מזומן פנוי (תיקון לבעיית ה-NaN) ---
+    available_cash = 0.0
+    cash_status = ""
     if 'מזומן_פנוי' in df.columns:
-        available_cash = pd.to_numeric(df['מזומן_פנוי'], errors='coerce').iloc[0]
-        cash_status = "✅ המזומן נמשך מעמודת 'מזומן_פנוי'"
+        # ניקוי ערכים ריקים ולקיחת המספר הראשון התקין
+        cash_series = pd.to_numeric(df['מזומן_פנוי'], errors='coerce').dropna()
+        if not cash_series.empty:
+            available_cash = float(cash_series.iloc[0])
+            cash_status = "✅ המזומן נמשך בהצלחה"
+        else:
+            available_cash = 4957.18
+            cash_status = "⚠️ עמודת מזומן ריקה"
     else:
-        # אם העמודה לא קיימת, נשתמש בערך האחרון שראינו בצילום המסך שלך
-        available_cash = 4957.18 
-        cash_status = "⚠️ עמודת 'מזומן_פנוי' לא נמצאה. מציג ערך ידני."
+        available_cash = 4957.18
+        cash_status = "⚠️ עמודת 'מזומן_פנוי' לא נמצאה"
 
     # טיפול בתאריכים ומספרים
     for date_col in ['Entry_Date', 'Exit_Date']:
@@ -44,16 +51,14 @@ try:
     open_trades = df[df['Exit_Price'] == 0].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy().sort_values(by='Exit_Date', ascending=False)
 
-    # --- SIDEBAR: נתוני חשבון ומחשבון ---
+    # --- SIDEBAR: נתוני חשבון ---
     st.sidebar.header("⚙️ נתוני חשבון")
     st.sidebar.metric("מזומן פנוי", f"${available_cash:,.2f}", help=cash_status)
-    if "⚠️" in cash_status:
-        st.sidebar.warning("כדי לאוטומט: הוסף עמודת 'מזומן_פנוי' בגיליון הראשי")
-
-    # מחשבון גודל פוזיציה
+    
+    # מחשבון גודל פוזיציה (כמו בצילום מסך 18.52.23)
     st.sidebar.divider()
     st.sidebar.subheader("🧮 מחשבון טרייד חדש")
-    calc_ticker = st.sidebar.text_input("טיקר לבדיקה", value="").strip().upper()
+    calc_ticker = st.sidebar.text_input("טיקר לבדיקה (למשל: OKE)", value="").strip().upper()
     entry_p = st.sidebar.number_input("מחיר כניסה ($)", min_value=0.0, step=0.01)
     stop_p = st.sidebar.number_input("סטופ לוס ($)", min_value=0.0, step=0.01)
     risk_pct = st.sidebar.slider("סיכון מהתיק (%)", 0.25, 2.0, 1.0, 0.25)
@@ -64,7 +69,8 @@ try:
         final_qty = min(int(money_at_risk / risk_per_share), int(available_cash / entry_p))
         if final_qty > 0:
             st.sidebar.success(f"✅ כמות לקנייה: {final_qty} מניות")
-            st.sidebar.write(f"💰 עלות: ${final_qty * entry_p:,.2f}")
+            st.sidebar.write(f"💰 עלות כוללת: ${final_qty * entry_p:,.2f}")
+            st.sidebar.write(f"📉 סיכון כספי: ${final_qty * risk_per_share:,.2f}")
         else: st.sidebar.error("אין מספיק מזומן פנוי!")
 
     # --- משיכת נתוני שוק לייב ---
@@ -81,7 +87,7 @@ try:
                 }
             except: continue
 
-    # --- SIDEBAR: פוזיציות וביצועים ---
+    # --- SIDEBAR: פוזיציות וביצועים (כמו בצילום מסך 18.56.05) ---
     st.sidebar.divider()
     st.sidebar.subheader("📈 פוזיציות פתוחות (Live)")
     market_value_stocks = 0
