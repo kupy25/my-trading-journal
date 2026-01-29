@@ -1,15 +1,16 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+import plotly.express as px  # הוספתי את השורה החסרה שגרמה לשגיאה
 from streamlit_gsheets import GSheetsConnection
 from streamlit_autorefresh import st_autorefresh
 
 # 1. הגדרות דף ורענון (10 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="verified_stable_refresh")
+st_autorefresh(interval=10000, key="verified_stable_refresh_v2")
 
-# 2. נקודות ייחוס קבועות (לא לגעת)
-CASH_START = 4957.18  # המזומן ההתחלתי שסיכמנו
+# 2. נקודות ייחוס קבועות
+CASH_START = 4957.18  # המזומן ההתחלתי
 PORTFOLIO_START_VAL = 44302.55 # שווי התיק ביום פתיחת היומן
 
 # פונקציית עמלות
@@ -32,12 +33,13 @@ try:
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
     # --- חישובי Sidebar דינמיים ---
-    # מזומן פנוי = התחלה פחות (עלות קניות פתוחות + עמלותיהן)
     invested_in_open = open_trades['עלות כניסה'].sum()
     fees_open = open_trades['Qty'].apply(get_fee).sum()
+    
+    # חישוב המזומן: התחלה פחות מה שהושקע בפוזיציות פתוחות
     current_cash = CASH_START - invested_in_open - fees_open
 
-    # עמלות מצטברות לתצוגה
+    # עמלות מצטברות
     fees_closed = (closed_trades['Qty'].apply(get_fee).sum() * 2)
     total_fees_display = fees_open + fees_closed
 
@@ -53,7 +55,12 @@ try:
         results = []
         for _, row in summary.iterrows():
             t = row['Ticker']
-            price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
+            # בדיקה אם יש יותר מטיקר אחד כדי למשוך את המחיר נכון
+            if len(tickers) > 1:
+                price = data[t].iloc[-1]
+            else:
+                price = data.iloc[-1]
+                
             val = price * row['Qty']
             market_val_total += val
             
@@ -63,7 +70,7 @@ try:
             results.append({'Ticker': t, 'Market_Value': val, 'PnL_Net': pnl_usd, 'PnL_Pct': pnl_pct})
         live_df = summary.merge(pd.DataFrame(results), on='Ticker')
 
-    # --- SIDEBAR (תצוגה נקייה ללא יישור ששובר מספרים) ---
+    # --- SIDEBAR (תצוגה ללא RTL ששובר מספרים) ---
     st.sidebar.header("⚙️ ניהול חשבון")
     st.sidebar.metric("מזומן פנוי", f"${current_cash:,.2f}")
     
@@ -85,11 +92,13 @@ try:
     
     with t1:
         if not live_df.empty:
-            st.dataframe(live_df[['Ticker', 'Entry_Date', 'Qty', 'Market_Value', 'PnL_Net', 'PnL_Pct']], use_container_width=True, hide_index=True)
+            df_view = live_df[['Ticker', 'Entry_Date', 'Qty', 'Market_Value', 'PnL_Net', 'PnL_Pct']].copy()
+            df_view['PnL_Pct'] = df_view['PnL_Pct'].map("{:.2f}%".format)
+            st.dataframe(df_view.sort_values('Market_Value', ascending=False), use_container_width=True, hide_index=True)
             st.divider()
             # גרף פיזור
             pie_data = pd.concat([live_df[['Ticker', 'Market_Value']], pd.DataFrame([{'Ticker': 'CASH', 'Market_Value': current_cash}])])
-            st.plotly_chart(px.pie(pie_data, values='Market_Value', names='Ticker', hole=0.4), use_container_width=True)
+            st.plotly_chart(px.pie(pie_data, values='Market_Value', names='Ticker', hole=0.4, title="פיזור תיק"), use_container_width=True)
 
     with t2:
         if not closed_trades.empty:
