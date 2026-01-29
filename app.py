@@ -7,7 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # 1. הגדרות דף ורענון אוטומטי (10 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="verified_full_dashboard_2026")
+st_autorefresh(interval=10000, key="fixed_reboot_2026")
 
 # 2. הגדרות קבועות
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
@@ -20,7 +20,12 @@ def get_fee(qty):
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
+    # קריאת הנתונים מהגיליון
     df = conn.read(spreadsheet=SHEET_URL, ttl="0")
+    if df is None or df.empty:
+        st.error("לא הצלחתי לקרוא נתונים מהגיליון. וודא שהקישור תקין.")
+        st.stop()
+
     df.columns = df.columns.str.strip()
     
     # המרת עמודות למספרים
@@ -32,7 +37,7 @@ try:
     # --- שליפת המזומן מעמודה N ---
     if 'מזומן_עדכני' in df.columns:
         cash_values = df['מזומן_עדכני'][df['מזומן_עדכני'] > 0]
-        current_cash = cash_values.iloc[-1] if not cash_values.empty else 3755.0
+        current_cash = float(cash_values.iloc[-1]) if not cash_values.empty else 3755.0
     else:
         current_cash = 3755.0
 
@@ -41,10 +46,10 @@ try:
     open_trades = df[open_trades_mask].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # חישוב עמלות מצטברות
+    # חישוב עמלות
     total_fees = df['Qty'].apply(get_fee).sum() + closed_trades['Qty'].apply(get_fee).sum()
 
-    # נתוני לייב מהבורסה
+    # נתוני לייב
     market_val_total = 0
     live_df = pd.DataFrame()
 
@@ -57,7 +62,7 @@ try:
         for _, row in summary.iterrows():
             t = row['Ticker']
             price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
-            val = price * row['Qty']
+            val = float(price * row['Qty'])
             market_val_total += val
             avg_c = row['עלות כניסה'] / row['Qty']
             p_usd = (val - row['עלות כניסה']) - get_fee(row['Qty'])
@@ -77,27 +82,23 @@ try:
     
     pnl_color = "#00c853" if diff >= 0 else "#ff4b4b"
     st.sidebar.markdown(f"<p style='color:{pnl_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff >= 0 else ''}{diff:,.2f}$</p>", unsafe_allow_html=True)
-    
-    st.sidebar.write("📉 **עמלות מצטברות:**")
-    st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
+    st.sidebar.write(f"עמלות מצטברות: ${total_fees:,.2f}")
 
-    # מחשבון טרייד
+    # מחשבון
     st.sidebar.divider()
-    with st.sidebar.popover("🧮 מחשבון טרייד", width='stretch'):
-        st.subheader("מחשבון גודל פוזיציה")
-        c_en = st.number_input("כניסה $", value=0.0, key="calc_en")
-        c_st = st.number_input("סטופ $", value=0.0, key="calc_st")
+    with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True):
+        c_en = st.number_input("כניסה $", value=0.0, key="c_en")
+        c_st = st.number_input("סטופ $", value=0.0, key="c_st")
         if c_en > c_st:
             q = int((PORTFOLIO_START_VAL * 0.01) / (c_en - c_st))
             st.success(f"כמות: {q} | עלות: ${q*c_en:,.2f}")
 
-    # פוזיציות לייב בסיידבר
     if not live_df.empty:
         st.sidebar.subheader("📈 פוזיציות (Live)")
         for _, row in live_df.iterrows():
             c = "#00c853" if row['רווח_דולרי'] >= 0 else "#ff4b4b"
             st.sidebar.write(f"**{row['Ticker']}:** ${row['שווי']:,.2f}")
-            st.sidebar.markdown(f"<p style='color:{c}; margin-top:-15px;'>{'+' if row['רווח_דולרי'] >= 0 else ''}{row['רווח_דולרי']:,.2f}$ ({row['רווח_אחוז']:.2f}%)</p>", unsafe_allow_html=True)
+            st.sidebar.markdown(f"<p style='color:{c}; margin-top:-15px;'>{'+' if row['רווח_דולרי'] >= 0 else ''}{row['רווח_דולרי']:,.2f}$</p>", unsafe_allow_html=True)
 
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
@@ -105,25 +106,17 @@ try:
     
     with t1:
         if not live_df.empty:
-            view_df = live_df.copy()
-            view_df['רווח_אחוז'] = view_df['רווח_אחוז'].map("{:.2f}%".format)
-            # שימוש ב-width='stretch' בטבלה
-            st.dataframe(view_df.sort_values('שווי', ascending=False), width='stretch', hide_index=True)
-            
+            st.dataframe(live_df.sort_values('שווי', ascending=False), use_container_width=True, hide_index=True)
             st.divider()
-            # גרף פאי
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
-                                 pd.DataFrame([{'Ticker': 'CASH', 'Value': current_cash}])])
-            fig = px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור הון")
-            # שימוש ב-width='stretch' בגרף
-            st.plotly_chart(fig, width='stretch')
+                                 pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash}])])
+            fig = px.pie(pie_data, values='Value', names='Ticker', hole=0.4)
+            st.plotly_chart(fig, use_container_width=True)
     
     with t2:
         if not closed_trades.empty:
-            realized = closed_trades['PnL'].sum()
-            st.write(f"### סך רווח ממומש: ${realized:,.2f}")
-            # שימוש ב-width='stretch' בטבלה
-            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']], width='stretch', hide_index=True)
+            st.write(f"### סך רווח ממומש: ${closed_trades['PnL'].sum():,.2f}")
+            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL']], use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"שגיאה: {e}")
+    st.error(f"שגיאה קריטית: {e}")
