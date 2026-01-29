@@ -8,8 +8,8 @@ from streamlit_autorefresh import st_autorefresh
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 
-# רענון בטוח לענן - כל 10 שניות
-st_autorefresh(interval=10000, key="stable_refresh")
+# רענון בטוח לענן
+st_autorefresh(interval=10000, key="wrapped_text_refresh")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 CASH_NOW = 4957.18 
@@ -110,7 +110,18 @@ try:
             total_realized = closed_trades['PnL'].sum()
             st.markdown(f"### סך רווח ממומש: :{'green' if total_realized >= 0 else 'red'}[${total_realized:,.2f}]")
             st.divider()
-            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']], use_container_width=True, hide_index=True)
+            
+            # הצגת טבלה עם עמודות רחבות ויכולת עריכה ויזואלית
+            st.data_editor(
+                closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']],
+                use_container_width=True,
+                hide_index=True,
+                disabled=True, # קריאה בלבד, העדכון נעשה בשיטס
+                column_config={
+                    "סיבת כניסה": st.column_config.TextColumn("סיבת כניסה", width="large"),
+                    "סיבת יציאה": st.column_config.TextColumn("סיבת יציאה", width="large")
+                }
+            )
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
