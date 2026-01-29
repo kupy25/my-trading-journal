@@ -7,11 +7,11 @@ from streamlit_autorefresh import st_autorefresh
 
 # 1. הגדרות דף ורענון אוטומטי (10 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="back_to_basics_refresh")
+st_autorefresh(interval=10000, key="full_restore_verified")
 
-# 2. נתוני בסיס (כאן אתה מעדכן את המזומן כשאתה קונה/מוכר)
-CASH_NOW = 3755.0  # המזומן הפנוי שלך כרגע
-PORTFOLIO_START_VAL = 44302.55 # שווי התיק ביום פתיחת היומן
+# 2. נתוני בסיס
+CASH_NOW = 3755.0  
+PORTFOLIO_START_VAL = 44302.55 
 
 def get_fee(qty):
     return 3.50 + (qty * 0.0078) if qty > 0 else 0
@@ -23,16 +23,14 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
     
-    # המרת עמודות למספרים
     for col in ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # סינון פוזיציות
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # חישוב עמלות
+    # חישובי עמלות
     fees_open = open_trades['Qty'].apply(get_fee).sum()
     fees_closed = (closed_trades['Qty'].apply(get_fee).sum() * 2)
     total_fees = fees_open + fees_closed
@@ -51,27 +49,46 @@ try:
             price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
             val = price * row['Qty']
             market_val_total += val
-            
             avg_cost = row['עלות כניסה'] / row['Qty']
             pnl_usd = (val - row['עלות כניסה']) - get_fee(row['Qty'])
             pnl_pct = ((price - avg_cost) / avg_cost) * 100
-            live_list.append({'Ticker': t, 'כמות': row['Qty'], 'שווי_שוק': val, 'רווח_דולרי': pnl_usd, 'רווח_באחוזים': pnl_pct})
+            live_list.append({'Ticker': t, 'כמות': row['Qty'], 'שווי': val, 'רווח_דולרי': pnl_usd, 'רווח_אחוז': pnl_pct})
         
         live_df = pd.DataFrame(live_list)
 
-    # --- SIDEBAR (ניהול חשבון) ---
+    # --- SIDEBAR (החזרת כל האלמנטים) ---
     st.sidebar.header("⚙️ ניהול חשבון")
     st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
     
     total_val = market_val_total + CASH_NOW
     diff = total_val - PORTFOLIO_START_VAL
     
-    st.sidebar.subheader("שווי תיק כולל")
-    st.sidebar.title(f"${total_val:,.2f}")
+    st.sidebar.write("### שווי תיק כולל")
+    st.sidebar.write(f"## ${total_val:,.2f}")
     
-    color = "green" if diff >= 0 else "red"
-    st.sidebar.markdown(f"<p style='color:{color}; font-size: 20px; font-weight: bold;'>רווח/הפסד: ${diff:,.2f}</p>", unsafe_allow_html=True)
-    st.sidebar.write(f"עמלות מצטברות: ${total_fees:,.2f}")
+    color = "#00c853" if diff >= 0 else "#ff4b4b"
+    st.sidebar.markdown(f"<p style='color:{color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff >= 0 else ''}{diff:,.2f}$</p>", unsafe_allow_html=True)
+    
+    st.sidebar.write("📉 **עמלות מצטברות:**")
+    st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
+
+    # החזרת המחשבון
+    st.sidebar.divider()
+    with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True):
+        st.subheader("מחשבון גודל פוזיציה")
+        c_entry = st.number_input("כניסה $", value=0.0)
+        c_stop = st.number_input("סטופ $", value=0.0)
+        if c_entry > c_stop:
+            q = int((PORTFOLIO_START_VAL * 0.01) / (c_entry - c_stop))
+            st.success(f"כמות: {q} | עלות: ${q*c_entry:,.2f}")
+
+    # החזרת פירוט הפוזיציות בסיידבר
+    if not open_trades.empty:
+        st.sidebar.subheader("📈 פוזיציות (Live)")
+        for _, row in live_df.iterrows():
+            p_color = "#00c853" if row['רווח_דולרי'] >= 0 else "#ff4b4b"
+            st.sidebar.write(f"**{row['Ticker']}:** ${row['שווי']:,.2f}")
+            st.sidebar.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if row['רווח_דולרי'] >= 0 else ''}{row['רווח_דולרי']:,.2f}$ ({row['רווח_אחוז']:.2f}%)</p>", unsafe_allow_html=True)
 
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
@@ -79,15 +96,18 @@ try:
     
     with t1:
         if not open_trades.empty:
-            st.dataframe(live_df, use_container_width=True, hide_index=True)
+            df_view = live_df.copy()
+            df_view['רווח_אחוז'] = df_view['רווח_אחוז'].map("{:.2f}%".format)
+            st.dataframe(df_view.sort_values('שווי', ascending=False), use_container_width=True, hide_index=True)
             st.divider()
-            pie_data = pd.concat([live_df[['Ticker', 'שווי_שוק']].rename(columns={'שווי_שוק': 'Value'}), 
+            pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
                                  pd.DataFrame([{'Ticker': 'מזומן', 'Value': CASH_NOW}])])
-            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור תיק"), use_container_width=True)
+            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4), use_container_width=True)
 
     with t2:
         if not closed_trades.empty:
-            st.subheader(f"רווח ממומש כולל: ${closed_trades['PnL'].sum():,.2f}")
+            realized = closed_trades['PnL'].sum()
+            st.markdown(f"### סך רווח ממומש: <span style='color:{'green' if realized >=0 else 'red'};'>${realized:,.2f}</span>", unsafe_allow_html=True)
             st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']], use_container_width=True, hide_index=True)
 
 except Exception as e:
