@@ -18,29 +18,20 @@ try:
     df = pd.read_csv(f"{CSV_URL}&cache={int(time.time())}")
     df.columns = df.columns.str.strip()
     
-    # מיפוי עמודות לפי הגיליון שלך (צילום מסך 18.56.09)
-    # עמודה A = מזומן_עדכני, עמודה Q = Ticker, עמודה L = Exit_Price
-    col_map = {
-        'מזומן_עדכני': 'מזומן_עדכני',
-        'Ticker': 'Ticker',
-        'Qty': 'Qty',
-        'עלות כניסה': 'עלות כניסה',
-        'Exit_Price': 'Exit_Price',
-        'PnL': 'PnL'
-    }
-
     # המרת עמודות למספרים
-    for col in ['Qty', 'עלות כניסה', 'Exit_Price', 'PnL', 'מזומן_עדכני']:
+    numeric_cols = ['Qty', 'עלות כניסה', 'Exit_Price', 'PnL', 'מזומן_עדכני']
+    for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # --- משיכת מזומן מתא A2 (הערך הראשון בעמודה מזומן_עדכני) ---
+    # --- משיכת מזומן מתא N2 (הערך הראשון בעמודה מזומן_עדכני) ---
     if 'מזומן_עדכני' in df.columns:
         current_cash = float(df['מזומן_עדכני'].iloc[0])
     else:
-        current_cash = 8377.65 # ערך גיבוי לפי צילום המסך שלך
+        current_cash = 8377.65 # ערך גיבוי למקרה של תקלה
 
     # 4. סינון פוזיציות פתוחות (Ticker קיים ו-Exit_Price הוא 0)
+    # לפי הגיליון שלך: BITB, MSTR, ETHA פתוחות (Exit_Price ריק/0)
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
@@ -49,7 +40,6 @@ try:
     live_list = []
 
     if not open_trades.empty:
-        # קיבוץ לפי טיקר (במקרה שיש כמה כניסות לאותה מניה)
         summary = open_trades.groupby('Ticker').agg({'Qty': 'sum', 'עלות כניסה': 'sum'}).reset_index()
         tickers = summary['Ticker'].unique().tolist()
         
@@ -68,9 +58,9 @@ try:
         
         live_df = pd.DataFrame(live_list)
 
-    # --- SIDEBAR ---
+    # --- SIDEBAR (החזרת התצוגה שעובדת) ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    st.sidebar.metric("מזומן פנוי (מתא A2)", f"${current_cash:,.2f}")
+    st.sidebar.metric("מזומן פנוי (N2)", f"${current_cash:,.2f}")
     
     total_val = market_val_total + current_cash
     diff = total_val - PORTFOLIO_START_VAL
@@ -89,17 +79,16 @@ try:
         if not open_trades.empty:
             st.dataframe(live_df.sort_values('שווי', ascending=False), use_container_width=True, hide_index=True)
             st.divider()
-            # גרף פאי - חלוקת הון אמיתית
+            # גרף פיזור הון
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
-                                 pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash}])])
-            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="חלוקת הון בתיק"), use_container_width=True)
-        else:
-            st.info("אין פוזיציות פתוחות כרגע בגיליון.")
+                                 pd.DataFrame([{'Ticker': 'CASH', 'Value': current_cash}])])
+            fig = px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור הון בתיק")
+            st.plotly_chart(fig, use_container_width=True)
 
     with t2:
         if not closed_trades.empty:
             st.write(f"### סך רווח ממומש: ${closed_trades['PnL'].sum():,.2f}")
-            st.dataframe(closed_trades[['Ticker', 'Qty', 'PnL', 'Exit_Price']], use_container_width=True, hide_index=True)
+            st.dataframe(closed_trades[['Ticker', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL']], use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"שגיאה: {e}")
+    st.error(f"שגיאה בחיבור: {e}")
