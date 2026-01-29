@@ -9,7 +9,7 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 
 # רענון בטוח לענן
-st_autorefresh(interval=10000, key="fixed_wrap_refresh")
+st_autorefresh(interval=10000, key="full_restore_refresh")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 CASH_NOW = 4957.18 
@@ -55,20 +55,41 @@ try:
             live_list.append({'Ticker': t, 'Market_Value': val, 'PnL_Net': pnl_usd, 'PnL_Pct': pnl_pct})
         open_trades = open_trades.merge(pd.DataFrame(live_list), on='Ticker')
 
+    # חישוב עמלות לסיכום
     fees_closed = (closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2)
     total_fees = (open_trades['temp_fee'].sum() if not open_trades.empty else 0) + fees_closed
 
-    # --- SIDEBAR ---
+    # --- SIDEBAR (שחזור מלא) ---
     st.sidebar.header("⚙️ ניהול חשבון")
     st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
+    
     total_portfolio = market_val_total + CASH_NOW
     diff = total_portfolio - initial_portfolio_value
+    
     st.sidebar.write(f"### שווי תיק כולל")
     st.sidebar.write(f"## ${total_portfolio:,.2f}")
     diff_color = "#00c853" if diff >= 0 else "#ff4b4b"
     st.sidebar.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff >= 0 else ''}{diff:,.2f}$</p>", unsafe_allow_html=True)
+    
     st.sidebar.write("📉 **עלויות מסחר מצטברות:**")
     st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
+
+    st.sidebar.divider()
+    with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True):
+        st.subheader("מחשבון גודל פוזיציה")
+        c_ticker = st.text_input("טיקר", key="calc_t").upper()
+        c_entry = st.number_input("כניסה $", value=0.0, key="calc_e")
+        c_stop = st.number_input("סטופ $", value=0.0, key="calc_s")
+        if c_ticker and c_entry > c_stop:
+            q = min(int((initial_portfolio_value * 0.01) / (c_entry - c_stop)), int(CASH_NOW / c_entry))
+            st.success(f"כמות: {q} | עלות: ${q*c_entry:,.2f}")
+
+    if not open_trades.empty:
+        st.sidebar.subheader("📈 פוזיציות (Live)")
+        for _, row in open_trades.iterrows():
+            p_color = "#00c853" if row['PnL_Net'] >= 0 else "#ff4b4b"
+            st.sidebar.write(f"**{row['Ticker']}:** ${row['Market_Value']:,.2f}")
+            st.sidebar.markdown(f"<p style='color:{p_color}; margin-top:-15px;'>{'+' if row['PnL_Net'] >= 0 else ''}{row['PnL_Net']:,.2f}$ ({row['PnL_Pct']:.2f}%)</p>", unsafe_allow_html=True)
 
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
@@ -89,19 +110,19 @@ try:
     with t2:
         if not closed_trades.empty:
             total_realized = closed_trades['PnL'].sum()
-            # תיקון תצוגת רווח ממומש למניעת היפוך סימנים (LTR)
             pnl_color = "green" if total_realized >= 0 else "red"
+            # תצוגה נקייה לרווח ממומש
             st.markdown(f"### סך רווח ממומש: <span style='color:{pnl_color}; direction: ltr; unicode-bidi: bidi-override;'>${total_realized:,.2f}</span>", unsafe_allow_html=True)
             st.divider()
             
-            # הצגת הטבלה המקורית עם שבירת שורות מובנית
+            # טבלה עם עמודות רחבות לסיבות
             st.dataframe(
                 closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "סיבת כניסה": st.column_config.TextColumn("סיבת כניסה", width="large", required=True),
-                    "סיבת יציאה": st.column_config.TextColumn("סיבת יציאה", width="large", required=True)
+                    "סיבת כניסה": st.column_config.TextColumn("סיבת כניסה", width="large"),
+                    "סיבת יציאה": st.column_config.TextColumn("סיבת יציאה", width="large")
                 }
             )
 
