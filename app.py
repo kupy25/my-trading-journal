@@ -9,33 +9,32 @@ import time
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st_autorefresh(interval=10000, key=f"reboot_final_{int(time.time())}")
 
-# 2. שינוי מבנה הקישור לקישור ישיר (Export) שעוקף את ה-Cache של גוגל
-# זה הקישור המקורי שלך מותאם להורדה ישירה
-SHEET_ID = "11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg"
-DIRECT_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
+# 2. הקישור הישיר לגיליון שלך
+SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit#gid=0"
+# קישור הורדה שעוקף את ה-Cache
+CSV_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/export?format=csv&gid=0"
 
 PORTFOLIO_START_VAL = 44302.55 
 
 try:
-    # 3. קריאה ישירה עם מנגנון מניעת Cache אגרסיבי
-    t_stamp = int(time.time())
-    df = pd.read_csv(f"{DIRECT_URL}&cachebuster={t_stamp}")
+    # 3. קריאת נתונים עם עוקף מטמון
+    df = pd.read_csv(f"{CSV_URL}&t={int(time.time())}")
     df.columns = df.columns.str.strip()
     
-    # המרת עמודות למספרים (בדיוק לפי השמות בגיליון שלך)
+    # המרת עמודות למספרים (בדיוק לפי הגיליון שלך)
     numeric_cols = ['Qty', 'עלות כניסה', 'Exit_Price', 'PnL', 'מזומן_עדכני']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     # 4. שליפת המזומן מעמודה N (תא N2)
-    # אין כאן אף מספר קבוע - הכל מגיע מהגיליון
+    # שים לב: אין כאן אף מספר ידני. הכל מגיע מהגיליון.
     if 'מזומן_עדכני' in df.columns:
         current_cash = float(df['מזומן_עדכני'].iloc[0])
     else:
         current_cash = 0.0
 
-    # 5. סינון פוזיציות (פוזיציה סגורה = Exit_Price גדול מ-0)
+    # 5. סינון פוזיציות (פתוח = Exit_Price הוא 0)
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
@@ -62,7 +61,11 @@ try:
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    # הצגת המזומן - אם זה עדיין 3755, סימן שגוגל שולח קובץ ישן
+    
+    # הוספת קישור ישיר לגיליון בסיידבר
+    st.sidebar.markdown(f"[🔗 פתח גוגל שיטס]({SHEET_URL})")
+    st.sidebar.divider()
+    
     st.sidebar.metric("מזומן פנוי", f"${current_cash:,.2f}")
     
     total_val = market_val_total + current_cash
@@ -75,6 +78,7 @@ try:
     st.sidebar.markdown(f"<h3 style='color:{color};'>{'+' if diff >= 0 else ''}{diff:,.2f}$</h3>", unsafe_allow_html=True)
 
     # --- מסך ראשי ---
+    st.title("📊 יומן המסחר של אבי")
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     
     with t1:
@@ -82,7 +86,7 @@ try:
             st.dataframe(live_df, use_container_width=True, hide_index=True)
             st.divider()
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
-                                 pd.DataFrame([{'Ticker': 'CASH', 'Value': current_cash}])])
+                                 pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash}])])
             st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4), use_container_width=True)
         else:
             st.info("אין פוזיציות פתוחות.")
@@ -93,4 +97,4 @@ try:
             st.dataframe(closed_trades[['Ticker', 'Qty', 'PnL', 'Exit_Price']], use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"שגיאה קריטית: {e}")
+    st.error(f"שגיאה בטעינת הנתונים: {e}")
