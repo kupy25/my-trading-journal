@@ -9,7 +9,7 @@ import time
 
 # 1. הגדרות דף ורענון
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key=f"baseline_final_{int(time.time())}")
+st_autorefresh(interval=1000000, key=f"baseline_final_{int(time.time())}")
 
 # --- הגדרות ה"עוגן" (נקודת האיפוס) ---
 ANCHOR_CASH = 8377.65 
