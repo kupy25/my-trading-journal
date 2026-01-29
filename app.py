@@ -5,37 +5,38 @@ import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
 import time
 
-# 1. הגדרות דף ורענון אוטומטי (10 שניות)
+# 1. הגדרות דף ורענון (10 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key=f"fixed_cash_v_{int(time.time())}")
+# מפתח רענון שמשתנה כל 10 שניות כדי להכריח את האתר להיבנות מחדש
+st_autorefresh(interval=10000, key=f"force_fix_{int(time.time())}")
 
-# 2. הקישור הישיר שלך (CSV)
+# 2. הקישור הישיר שלך
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQKaG_u8xiC5wYWL3QihjRCsS8FA1O3hjvIWnCwmh3k4yPOK_5scHuwlURvHZjwj3Zo3QWEMse_pK5i/pub?output=csv"
 PORTFOLIO_START_VAL = 44302.55 
 
 try:
-    # 3. קריאת נתונים עם עוקף מטמון (כדי שימשוך את ה-8,377.65 מיד)
+    # 3. קריאה ישירה עם "עוקף זיכרון" (Cache Buster)
+    # אנחנו מוסיפים זמן לקישור כדי שגוגל לא ישלח גרסה ישנה
     df = pd.read_csv(f"{CSV_URL}&nocache={int(time.time())}")
     df.columns = df.columns.str.strip()
     
     # המרת עמודות למספרים לפי השמות בגיליון שלך
-    cols_to_fix = ['Qty', 'עלות כניסה', 'Exit_Price', 'PnL', 'מזומן_עדכני']
-    for col in cols_to_fix:
+    for col in ['Qty', 'עלות כניסה', 'Exit_Price', 'PnL', 'מזומן_עדכני']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # --- משיכת מזומן: לוקח את הערך מתא N2 ---
+    # --- משיכת מזומן: לוקח את הערך הראשון בעמודה N ---
     if 'מזומן_עדכני' in df.columns:
         current_cash = float(df['מזומן_עדכני'].iloc[0])
     else:
-        current_cash = 8377.65 # ערך גיבוי לפי צילום המסך
+        current_cash = 8377.65
 
     # 4. סינון פוזיציות (רק אלו שאין להן מחיר יציאה)
-    # ONDS ו-RCAT יוסרו אוטומטית כי יש להן Exit_Price > 0 בגיליון שלך
+    # ONDS ו-RCAT יוסרו כי יש להן Exit_Price בגיליון
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # 5. נתוני לייב מ-Yahoo Finance (BITB, MSTR, ETHA)
+    # 5. נתוני לייב
     market_val_total = 0
     live_list = []
     if not open_trades.empty:
@@ -56,7 +57,7 @@ try:
 
     # --- SIDEBAR (ניהול חשבון) ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    st.sidebar.metric("מזומן פנוי (מהגיליון)", f"${current_cash:,.2f}")
+    st.sidebar.metric("מזומן פנוי (N2)", f"${current_cash:,.2f}")
     
     total_val = market_val_total + current_cash
     diff = total_val - PORTFOLIO_START_VAL
@@ -64,8 +65,8 @@ try:
     st.sidebar.write("### שווי תיק כולל")
     st.sidebar.write(f"## ${total_val:,.2f}")
     
-    color = "#00c853" if diff >= 0 else "#ff4b4b"
-    st.sidebar.markdown(f"<h3 style='color:{color};'>{'+' if diff >= 0 else ''}{diff:,.2f}$</h3>", unsafe_allow_html=True)
+    p_color = "#00c853" if diff >= 0 else "#ff4b4b"
+    st.sidebar.markdown(f"<h3 style='color:{p_color};'>{'+' if diff >= 0 else ''}{diff:,.2f}$</h3>", unsafe_allow_html=True)
 
     # --- תצוגה ראשית ---
     st.title("📊 יומן המסחר של אבי")
