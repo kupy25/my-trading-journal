@@ -8,8 +8,9 @@ from streamlit_autorefresh import st_autorefresh
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 
-# רענון שקט ובטוח כל 10 שניות - לא יוצר Threads חדשים
-st_autorefresh(interval=10000, key="fixed_refresh")
+# רענון בטוח לענן - כל 10 שניות
+# זהו הפתרון המומלץ למניעת RuntimeError: can't start new thread
+st_autorefresh(interval=10000, key="cloud_refresh")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 CASH_NOW = 4957.18 
@@ -23,6 +24,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
+    
+    # ניקוי נתונים
     for col in ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -57,21 +60,18 @@ try:
     fees_closed = (closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2)
     total_fees = (open_trades['temp_fee'].sum() if not open_trades.empty else 0) + fees_closed
 
-    # --- SIDEBAR (מסודר מחדש) ---
+    # --- SIDEBAR (סדר מבוקש: מזומן -> שווי -> עמלות) ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    
-    # 1. מזומן
     st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
     
-    # 2. שווי תיק
     total_portfolio = market_val_total + CASH_NOW
     diff = total_portfolio - initial_portfolio_value
+    
     st.sidebar.write(f"### שווי תיק כולל")
     st.sidebar.write(f"## ${total_portfolio:,.2f}")
     diff_color = "#00c853" if diff >= 0 else "#ff4b4b"
     st.sidebar.markdown(f"<p style='color:{diff_color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff >= 0 else ''}{diff:,.2f}$</p>", unsafe_allow_html=True)
     
-    # 3. עמלות
     st.sidebar.write("📉 **עלויות מסחר מצטברות:**")
     st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
 
