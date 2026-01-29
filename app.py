@@ -7,10 +7,10 @@ from streamlit_autorefresh import st_autorefresh
 
 # 1. הגדרות דף ורענון אוטומטי (10 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="full_restore_verified")
+st_autorefresh(interval=10000, key="full_restore_verified_v2")
 
-# 2. נתוני בסיס
-CASH_NOW = 3755.0  
+# 2. נתוני בסיס קבועים לחישוב אוטומטי
+CASH_START_REF = 4957.18  # נקודת הייחוס למזומן
 PORTFOLIO_START_VAL = 44302.55 
 
 def get_fee(qty):
@@ -30,10 +30,14 @@ try:
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # חישובי עמלות
-    fees_open = open_trades['Qty'].apply(get_fee).sum()
-    fees_closed = (closed_trades['Qty'].apply(get_fee).sum() * 2)
-    total_fees = fees_open + fees_closed
+    # --- חישובים אוטומטיים (מבוסס על הגיליון) ---
+    # עמלות: קנייה לכולם + מכירה רק לסגורים
+    total_fees = df['Qty'].apply(get_fee).sum() + closed_trades['Qty'].apply(get_fee).sum()
+    
+    # מזומן: התחלה - הון מושקע כרגע - עמלות ששולמו + רווח ממומש
+    invested_now = open_trades['עלות כניסה'].sum()
+    realized_pnl = closed_trades['PnL'].sum()
+    dynamic_cash = CASH_START_REF - invested_now - total_fees + realized_pnl
 
     # נתוני לייב
     market_val_total = 0
@@ -56,11 +60,11 @@ try:
         
         live_df = pd.DataFrame(live_list)
 
-    # --- SIDEBAR (החזרת כל האלמנטים) ---
+    # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
+    st.sidebar.metric("מזומן פנוי", f"${dynamic_cash:,.2f}")
     
-    total_val = market_val_total + CASH_NOW
+    total_val = market_val_total + dynamic_cash
     diff = total_val - PORTFOLIO_START_VAL
     
     st.sidebar.write("### שווי תיק כולל")
@@ -72,7 +76,6 @@ try:
     st.sidebar.write("📉 **עמלות מצטברות:**")
     st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
 
-    # החזרת המחשבון
     st.sidebar.divider()
     with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True):
         st.subheader("מחשבון גודל פוזיציה")
@@ -82,7 +85,6 @@ try:
             q = int((PORTFOLIO_START_VAL * 0.01) / (c_entry - c_stop))
             st.success(f"כמות: {q} | עלות: ${q*c_entry:,.2f}")
 
-    # החזרת פירוט הפוזיציות בסיידבר
     if not open_trades.empty:
         st.sidebar.subheader("📈 פוזיציות (Live)")
         for _, row in live_df.iterrows():
@@ -101,7 +103,7 @@ try:
             st.dataframe(df_view.sort_values('שווי', ascending=False), use_container_width=True, hide_index=True)
             st.divider()
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
-                                 pd.DataFrame([{'Ticker': 'מזומן', 'Value': CASH_NOW}])])
+                                 pd.DataFrame([{'Ticker': 'מזומן', 'Value': dynamic_cash}])])
             st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4), use_container_width=True)
 
     with t2:
