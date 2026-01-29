@@ -9,7 +9,27 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 
 # רענון בטוח לענן - 10 שניות
-st_autorefresh(interval=10000, key="final_verified_refresh")
+st_autorefresh(interval=10000, key="rtl_verified_refresh")
+
+# --- הזרקת CSS ליישור לימין (RTL) ---
+st.markdown("""
+    <style>
+    /* יישור כותרות ראשיות וכותרות סיידבר לימין */
+    h1, h2, h3, .stMarkdown, .css-10trblm {
+        text-align: right;
+        direction: rtl;
+    }
+    /* יישור המטריקות (מזומן פנוי) */
+    [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {
+        text-align: right;
+        direction: rtl;
+    }
+    /* יישור טאבים */
+    button[data-baseweb="tab"] {
+        direction: rtl;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 CASH_NOW = 4957.18 
@@ -110,7 +130,8 @@ try:
         if not closed_trades.empty:
             total_realized = closed_trades['PnL'].sum()
             pnl_color = "green" if total_realized >= 0 else "red"
-            st.markdown(f"### סך רווח ממומש: <span style='color:{pnl_color}; direction: ltr; unicode-bidi: bidi-override;'>${total_realized:,.2f}</span>", unsafe_allow_html=True)
+            # יישור לימין של סיכום הרווח הממומש
+            st.markdown(f"<div style='text-align: right; direction: rtl;'><h3>סך רווח ממומש: <span style='color:{pnl_color}; direction: ltr; unicode-bidi: bidi-override;'>${total_realized:,.2f}</span></h3></div>", unsafe_allow_html=True)
             st.divider()
             st.dataframe(
                 closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']],
