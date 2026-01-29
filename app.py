@@ -5,41 +5,43 @@ import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
 import time
 
-# 1. הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key=f"reboot_v9_{int(time.time())}")
+st_autorefresh(interval=10000, key=f"cash_fix_{int(time.time())}")
 
-# 2. הגדרת קישורים (החלפתי לקישור הישיר שלך)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit#gid=0"
+# קישור הורדה ישיר
 CSV_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/export?format=csv&gid=0"
 
-# הצגת הקישור בראש הדף כדי לוודא שהקוד התעדכן
 st.markdown(f"### [🔗 לחץ כאן למעבר לגוגל שיטס]({SHEET_URL})")
-st.divider()
 
 try:
-    # 3. קריאה ישירה ללא "מספרי רפאים"
-    # הוספת Timestamp כדי להכריח את גוגל לשלוח נתונים טריים
-    df = pd.read_csv(f"{CSV_URL}&t={int(time.time())}")
-    df.columns = df.columns.str.strip()
+    # קריאה עם עוקף מטמון
+    df = pd.read_csv(f"{CSV_URL}&cache={int(time.time())}")
     
-    # ניקוי עמודות
-    for col in ['Qty', 'עלות כניסה', 'Exit_Price', 'PnL', 'מזומן_עדכני']:
+    # ניקוי שמות עמודות מרווחים ותווים נסתרים
+    df.columns = df.columns.str.strip().str.replace('\n', '').str.replace('\r', '')
+
+    # --- איתור עמודת המזומן ---
+    # מחפש עמודה שמכילה את המילה 'מזומן'
+    cash_col = [c for c in df.columns if 'מזומן' in c]
+    
+    if cash_col:
+        # לוקח את הערך הראשון בעמודה שמצאנו (N2)
+        raw_cash = df[cash_col[0]].iloc[0]
+        current_cash = pd.to_numeric(raw_cash, errors='coerce')
+        if pd.isna(current_cash): current_cash = 0.0
+    else:
+        current_cash = 0.0
+        st.warning("לא מצאתי עמודה עם המילה 'מזומן' בגיליון")
+
+    # המרת שאר העמודות
+    for col in ['Qty', 'עלות כניסה', 'Exit_Price']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # 4. משיכת מזומן מעמודה N (תא N2)
-    # שים לב: אין כאן אף מספר ידני!
-    if 'מזומן_עדכני' in df.columns:
-        current_cash = float(df['מזומן_עדכני'].iloc[0])
-    else:
-        current_cash = 0.0
-
-    # 5. סינון פוזיציות
+    # סינון פוזיציות
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
-    closed_trades = df[df['Exit_Price'] > 0].copy()
-
-    # 6. נתוני לייב
+    
     market_val_total = 0
     live_list = []
     if not open_trades.empty:
@@ -56,22 +58,19 @@ try:
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
+    # כאן יופיע ה-8,377.65
     st.sidebar.metric("מזומן פנוי", f"${current_cash:,.2f}")
     
     total_val = market_val_total + current_cash
     st.sidebar.subheader("שווי תיק כולל")
     st.sidebar.title(f"${total_val:,.2f}")
 
-    # --- טאבים ---
-    t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
-    with t1:
-        if not open_trades.empty:
-            st.dataframe(live_df, use_container_width=True, hide_index=True)
-            st.plotly_chart(px.pie(pd.concat([live_df, pd.DataFrame([{'Ticker': 'מזומן', 'שווי': current_cash}])]), 
-                                  values='שווי', names='Ticker', hole=0.4), use_container_width=True)
-
-    with t2:
-        st.dataframe(closed_trades[['Ticker', 'Qty', 'PnL']], use_container_width=True, hide_index=True)
+    # טאב פוזיציות
+    if not open_trades.empty:
+        st.dataframe(live_df, use_container_width=True, hide_index=True)
+        # גרף פאי שכולל את המזומן
+        pie_data = pd.concat([live_df, pd.DataFrame([{'Ticker': 'מזומן', 'שווי': current_cash}])])
+        st.plotly_chart(px.pie(pie_data, values='שווי', names='Ticker', hole=0.4), use_container_width=True)
 
 except Exception as e:
-    st.error(f"שגיאה בחיבור: {e}")
+    st.error(f"שגיאה: {e}")
