@@ -8,8 +8,8 @@ from streamlit_autorefresh import st_autorefresh
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 
-# רענון בטוח לענן
-st_autorefresh(interval=10000, key="full_restore_refresh")
+# רענון בטוח לענן - 10 שניות
+st_autorefresh(interval=10000, key="final_verified_refresh")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 CASH_NOW = 4957.18 
@@ -55,11 +55,10 @@ try:
             live_list.append({'Ticker': t, 'Market_Value': val, 'PnL_Net': pnl_usd, 'PnL_Pct': pnl_pct})
         open_trades = open_trades.merge(pd.DataFrame(live_list), on='Ticker')
 
-    # חישוב עמלות לסיכום
     fees_closed = (closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2)
     total_fees = (open_trades['temp_fee'].sum() if not open_trades.empty else 0) + fees_closed
 
-    # --- SIDEBAR (שחזור מלא) ---
+    # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
     st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
     
@@ -111,11 +110,8 @@ try:
         if not closed_trades.empty:
             total_realized = closed_trades['PnL'].sum()
             pnl_color = "green" if total_realized >= 0 else "red"
-            # תצוגה נקייה לרווח ממומש
             st.markdown(f"### סך רווח ממומש: <span style='color:{pnl_color}; direction: ltr; unicode-bidi: bidi-override;'>${total_realized:,.2f}</span>", unsafe_allow_html=True)
             st.divider()
-            
-            # טבלה עם עמודות רחבות לסיבות
             st.dataframe(
                 closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']],
                 use_container_width=True,
