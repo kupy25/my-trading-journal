@@ -8,8 +8,8 @@ from streamlit_autorefresh import st_autorefresh
 # הגדרות דף
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 
-# רענון בטוח
-st_autorefresh(interval=10000, key="html_table_refresh")
+# רענון בטוח לענן
+st_autorefresh(interval=10000, key="final_table_refresh")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 CASH_NOW = 4957.18 
@@ -78,63 +78,22 @@ try:
             st.markdown(f"### סך רווח ממומש: :green[${closed_trades['PnL'].sum():,.2f}]")
             st.divider()
             
-            # --- פתרון שבירת השורות (HTML Table) ---
-            # עיצוב ה-CSS שיכריח את הטקסט להישבר (Wrap)
-            html_style = """
-            <style>
-                .custom-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    font-family: sans-serif;
-                    font-size: 14px;
-                }
-                .custom-table th {
-                    background-color: #f0f2f6;
-                    text-align: right;
-                    padding: 10px;
-                    border: 1px solid #ddd;
-                }
-                .custom-table td {
-                    text-align: right;
-                    padding: 10px;
-                    border: 1px solid #ddd;
-                    white-space: normal; /* כאן קורה הקסם - שבירת שורה */
-                    word-wrap: break-word;
-                    max-width: 300px;
-                }
-                .pnl-pos { color: #00c853; font-weight: bold; }
-                .pnl-neg { color: #ff4b4b; font-weight: bold; }
-            </style>
-            """
+            # הכנת הטבלה לתצוגה עם שבירת שורות
+            display_df = closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].copy()
             
-            # בניית הטבלה כשורה של פקודות HTML
-            table_header = """
-            <table class='custom-table'>
-                <thead>
-                    <tr>
-                        <th>טיקר</th><th>כניסה</th><th>יציאה</th><th>כמות</th><th>רווח/הפסד</th><th>סיבת כניסה</th><th>סיבת יציאה</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
+            # שימוש ב-Styler כדי להכריח שבירת שורות (Text Wrap)
+            st.markdown("""
+                <style>
+                .stTable td {
+                    white-space: pre-wrap !important;
+                    word-wrap: break-word !important;
+                    min-width: 200px;
+                }
+                </style>
+            """, unsafe_allow_html=True)
             
-            rows = ""
-            for _, row in closed_trades.iterrows():
-                pnl_class = 'pnl-pos' if row['PnL'] >= 0 else 'pnl-neg'
-                rows += f"""
-                <tr>
-                    <td><b>{row['Ticker']}</b></td>
-                    <td>{row['Entry_Date']}</td>
-                    <td>{row['Exit_Date']}</td>
-                    <td>{row['Qty']}</td>
-                    <td class='{pnl_class}'>${row['PnL']:.2f}</td>
-                    <td>{row['סיבת כניסה']}</td>
-                    <td>{row['סיבת יציאה']}</td>
-                </tr>
-                """
-            
-            full_html = html_style + table_header + rows + "</tbody></table>"
-            st.markdown(full_html, unsafe_allow_html=True)
+            # הצגת הטבלה בפורמט שמאפשר גובה שורה דינמי
+            st.table(display_df)
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
