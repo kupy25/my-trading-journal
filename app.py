@@ -9,8 +9,7 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 
 # רענון בטוח לענן - כל 10 שניות
-# זהו הפתרון המומלץ למניעת RuntimeError: can't start new thread
-st_autorefresh(interval=10000, key="cloud_refresh")
+st_autorefresh(interval=10000, key="analytics_refresh")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 CASH_NOW = 4957.18 
@@ -25,7 +24,6 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
     
-    # ניקוי נתונים
     for col in ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -60,13 +58,12 @@ try:
     fees_closed = (closed_trades['Qty'].apply(calculate_trade_fee).sum() * 2)
     total_fees = (open_trades['temp_fee'].sum() if not open_trades.empty else 0) + fees_closed
 
-    # --- SIDEBAR (סדר מבוקש: מזומן -> שווי -> עמלות) ---
+    # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
     st.sidebar.metric("מזומן פנוי", f"${CASH_NOW:,.2f}")
     
     total_portfolio = market_val_total + CASH_NOW
     diff = total_portfolio - initial_portfolio_value
-    
     st.sidebar.write(f"### שווי תיק כולל")
     st.sidebar.write(f"## ${total_portfolio:,.2f}")
     diff_color = "#00c853" if diff >= 0 else "#ff4b4b"
@@ -96,7 +93,8 @@ try:
     st.title("📊 יומן המסחר של אבי")
     st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
     
-    t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
+    t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 ניתוח טריידים סגורים"])
+    
     with t1:
         if not open_trades.empty:
             df_disp = open_trades[['Ticker', 'Entry_Date', 'Qty', 'Entry_Price', 'Market_Value', 'PnL_Net', 'PnL_Pct', 'סיבת כניסה']].copy()
@@ -104,12 +102,40 @@ try:
             st.dataframe(df_disp.sort_values('Market_Value', ascending=False), use_container_width=True, hide_index=True)
             st.divider()
             chart_data = pd.concat([open_trades[['Ticker', 'Market_Value']], pd.DataFrame([{'Ticker': 'CASH', 'Market_Value': CASH_NOW}])], ignore_index=True)
-            fig = px.pie(chart_data, values='Market_Value', names='Ticker', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+            fig = px.pie(chart_data, values='Market_Value', names='Ticker', hole=0.4, title="פיזור תיק נוכחי")
             st.plotly_chart(fig, use_container_width=True)
+    
     with t2:
         if not closed_trades.empty:
+            # סיכום כללי
+            total_realized = closed_trades['PnL'].sum()
+            st.markdown(f"### סך רווח ממומש: :{'green' if total_realized >= 0 else 'red'}[${total_realized:,.2f}]")
+            
+            st.divider()
+            st.subheader("🎯 ניתוח לפי אסטרטגיה (סיבת כניסה)")
+            
+            # חישוב סטטיסטיקה לפי סיבת כניסה
+            strategy_analysis = closed_trades.groupby('סיבת כניסה').agg({
+                'PnL': ['sum', 'count', lambda x: (x > 0).sum()]
+            }).reset_index()
+            
+            strategy_analysis.columns = ['אסטרטגיה', 'רווח/הפסד מצטבר', 'מספר טריידים', 'טריידים מנצחים']
+            strategy_analysis['אחוז הצלחה'] = (strategy_analysis['טריידים מנצחים'] / strategy_analysis['מספר טריידים'] * 100).map("{:.1f}%".format)
+            
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.dataframe(strategy_analysis.sort_values('רווח/הפסד מצטבר', ascending=False), use_container_width=True, hide_index=True)
+            
+            with col2:
+                fig_strat = px.bar(strategy_analysis, x='אסטרטגיה', y='רווח/הפסד מצטבר', 
+                                   color='רווח/הפסד מצטבר', 
+                                   color_continuous_scale=['red', 'green'],
+                                   title="רווח/הפסד לפי סיבת כניסה")
+                st.plotly_chart(fig_strat, use_container_width=True)
+            
+            st.divider()
+            st.subheader("היסטוריית טריידים מלאה")
             st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']], use_container_width=True, hide_index=True)
-            st.markdown(f"### סך רווח ממומש: :{'green' if closed_trades['PnL'].sum() >= 0 else 'red'}[${closed_trades['PnL'].sum():,.2f}]")
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
