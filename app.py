@@ -7,7 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # 1. הגדרות דף ורענון אוטומטי (10 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="verified_full_dashboard")
+st_autorefresh(interval=10000, key="verified_full_dashboard_2026")
 
 # 2. הגדרות קבועות
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
@@ -65,7 +65,7 @@ try:
             results.append({'Ticker': t, 'כמות': row['Qty'], 'שווי': val, 'רווח_דולרי': p_usd, 'רווח_אחוז': p_pct})
         live_df = pd.DataFrame(results)
 
-    # --- SIDEBAR (החזרת כל המרכיבים) ---
+    # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
     st.sidebar.metric("מזומן פנוי", f"${current_cash:,.2f}")
     
@@ -83,7 +83,7 @@ try:
 
     # מחשבון טרייד
     st.sidebar.divider()
-    with st.sidebar.popover("🧮 מחשבון טרייד", use_container_width=True):
+    with st.sidebar.popover("🧮 מחשבון טרייד", width='stretch'):
         st.subheader("מחשבון גודל פוזיציה")
         c_en = st.number_input("כניסה $", value=0.0, key="calc_en")
         c_st = st.number_input("סטופ $", value=0.0, key="calc_st")
@@ -107,20 +107,23 @@ try:
         if not live_df.empty:
             view_df = live_df.copy()
             view_df['רווח_אחוז'] = view_df['רווח_אחוז'].map("{:.2f}%".format)
-            st.dataframe(view_df.sort_values('שווי', ascending=False), use_container_width=True, hide_index=True)
+            # שימוש ב-width='stretch' בטבלה
+            st.dataframe(view_df.sort_values('שווי', ascending=False), width='stretch', hide_index=True)
             
             st.divider()
-            # גרף פאי - תיקון הצגה
+            # גרף פאי
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
                                  pd.DataFrame([{'Ticker': 'CASH', 'Value': current_cash}])])
             fig = px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור הון")
-            st.plotly_chart(fig, use_container_width=True)
+            # שימוש ב-width='stretch' בגרף
+            st.plotly_chart(fig, width='stretch')
     
     with t2:
         if not closed_trades.empty:
             realized = closed_trades['PnL'].sum()
             st.write(f"### סך רווח ממומש: ${realized:,.2f}")
-            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']], use_container_width=True, hide_index=True)
+            # שימוש ב-width='stretch' בטבלה
+            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']], width='stretch', hide_index=True)
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
