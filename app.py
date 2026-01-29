@@ -7,38 +7,39 @@ import time
 
 # 1. הגדרות דף ורענון (10 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key=f"clean_reboot_{int(time.time())}")
+st_autorefresh(interval=10000, key=f"reboot_final_{int(time.time())}")
 
-# 2. הקישור הישיר שלך (CSV)
-CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQKaG_u8xiC5wYWL3QihjRCsS8FA1O3hjvIWnCwmh3k4yPOK_5scHuwlURvHZjwj3Zo3QWEMse_pK5i/pub?output=csv"
+# 2. שינוי מבנה הקישור לקישור ישיר (Export) שעוקף את ה-Cache של גוגל
+# זה הקישור המקורי שלך מותאם להורדה ישירה
+SHEET_ID = "11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg"
+DIRECT_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
+
 PORTFOLIO_START_VAL = 44302.55 
 
 try:
-    # 3. קריאת נתונים עם עוקף מטמון (Cache Buster)
-    # הוספת timestamp ייחודי לכל קריאה כדי להכריח את גוגל לשלוח נתונים חדשים
-    df = pd.read_csv(f"{CSV_URL}&nocache={int(time.time())}")
+    # 3. קריאה ישירה עם מנגנון מניעת Cache אגרסיבי
+    t_stamp = int(time.time())
+    df = pd.read_csv(f"{DIRECT_URL}&cachebuster={t_stamp}")
     df.columns = df.columns.str.strip()
     
-    # ניקוי והמרת עמודות למספרים (בדיוק לפי השמות בגיליון שלך)
+    # המרת עמודות למספרים (בדיוק לפי השמות בגיליון שלך)
     numeric_cols = ['Qty', 'עלות כניסה', 'Exit_Price', 'PnL', 'מזומן_עדכני']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # 4. משיכת מזומן: לוקח את הערך הראשון בעמודה N (תא N2)
-    # הסרתי כל מספר "קפוא" שהיה כאן קודם.
+    # 4. שליפת המזומן מעמודה N (תא N2)
+    # אין כאן אף מספר קבוע - הכל מגיע מהגיליון
     if 'מזומן_עדכני' in df.columns:
         current_cash = float(df['מזומן_עדכני'].iloc[0])
     else:
         current_cash = 0.0
-        st.sidebar.error("עמודת 'מזומן_עדכני' לא נמצאה בגיליון!")
 
-    # 5. סינון פוזיציות: פתוח = אין מחיר יציאה
-    # זה יוודא ש-ONDS ו-RCAT לא ינפחו את השווי אם עדכנת להן Exit_Price
+    # 5. סינון פוזיציות (פוזיציה סגורה = Exit_Price גדול מ-0)
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # 6. נתוני לייב (BITB, MSTR, ETHA)
+    # 6. נתוני לייב
     market_val_total = 0
     live_df = pd.DataFrame()
 
@@ -59,8 +60,9 @@ try:
             results.append({'Ticker': t, 'שווי': val, 'רווח_$': p_usd, 'רווח_%': p_pct})
         live_df = pd.DataFrame(results)
 
-    # --- SIDEBAR (ניהול חשבון) ---
+    # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
+    # הצגת המזומן - אם זה עדיין 3755, סימן שגוגל שולח קובץ ישן
     st.sidebar.metric("מזומן פנוי", f"${current_cash:,.2f}")
     
     total_val = market_val_total + current_cash
@@ -72,13 +74,6 @@ try:
     color = "#00c853" if diff >= 0 else "#ff4b4b"
     st.sidebar.markdown(f"<h3 style='color:{color};'>{'+' if diff >= 0 else ''}{diff:,.2f}$</h3>", unsafe_allow_html=True)
 
-    # פירוט פוזיציות ב-Sidebar
-    if not live_df.empty:
-        st.sidebar.divider()
-        st.sidebar.subheader("📈 פוזיציות לייב")
-        for _, row in live_df.iterrows():
-            st.sidebar.write(f"**{row['Ticker']}:** ${row['שווי']:,.2f}")
-
     # --- מסך ראשי ---
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     
@@ -86,7 +81,6 @@ try:
         if not open_trades.empty:
             st.dataframe(live_df, use_container_width=True, hide_index=True)
             st.divider()
-            # גרף פאי
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
                                  pd.DataFrame([{'Ticker': 'CASH', 'Value': current_cash}])])
             st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4), use_container_width=True)
