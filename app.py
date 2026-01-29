@@ -9,7 +9,7 @@ st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st_autorefresh(interval=10000, key="fixed_reboot_v3")
 
 # 2. קישור ישיר ל-CSV (תחליף את זה בקישור שקיבלת מה-Publish to Web)
-CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS_O8Bf2M9zL9_9-k7-V6_D0N18ARrpYaHCGPdxF6o9vJvPf0Anpg/pub?output=csv"
+CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQKaG_u8xiC5wYWL3QihjRCsS8FA1O3hjvIWnCwmh3k4yPOK_5scHuwlURvHZjwj3Zo3QWEMse_pK5i/pubhtml"
 PORTFOLIO_START_VAL = 44302.55 
 
 def get_fee(qty):
