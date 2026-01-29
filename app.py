@@ -7,9 +7,9 @@ from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 import time
 
-# 1. הגדרות דף
+# 1. הגדרות דף ורענון
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key=f"full_restore_v2_{int(time.time())}")
+st_autorefresh(interval=10000, key=f"baseline_final_{int(time.time())}")
 
 # --- הגדרות ה"עוגן" (נקודת האיפוס) ---
 ANCHOR_CASH = 8377.65 
@@ -42,7 +42,7 @@ try:
         if col in df.columns:
             df[col] = df[col].apply(clean_numeric).fillna(0)
 
-    # --- מנוע מזומן ועמלות ---
+    # --- מנוע מזומן ועמלות (חישוב אוטומטי מתאריך העוגן) ---
     new_buys = df[(df['Entry_Date'] > ANCHOR_DATE)]
     cash_out = (new_buys['Qty'] * new_buys['Entry_Price']).sum() + new_buys['Qty'].apply(get_fee).sum()
 
@@ -51,7 +51,7 @@ try:
 
     calculated_cash = ANCHOR_CASH - cash_out + cash_in
     
-    # עמלות לכל ההיסטוריה
+    # עמלות מצטברות
     total_fees = df['Qty'].apply(get_fee).sum() + (df[df['Exit_Price'] > 0]['Qty'].apply(get_fee).sum())
 
     # --- פוזיציות ושווי שוק ---
@@ -79,7 +79,7 @@ try:
             })
         live_df = pd.DataFrame(res)
 
-    # --- SIDEBAR (החזרת כל האלמנטים) ---
+    # --- SIDEBAR (ניהול חשבון ומחשבון בלבד) ---
     st.sidebar.header("⚙️ ניהול חשבון")
     st.sidebar.metric("מזומן מחושב", f"${calculated_cash:,.2f}")
     
@@ -103,33 +103,30 @@ try:
         q = int((total_val * 0.01) / (c_entry - c_stop))
         st.sidebar.success(f"**{calc_name}** | כמות: {q}\n\nעלות: ${q*c_entry:,.2f}")
 
-    # פוזיציות לייב בסיידבר
-    if not live_df.empty:
-        st.sidebar.divider()
-        st.sidebar.subheader("📈 פוזיציות (Live)")
-        for _, row in live_df.iterrows():
-            row_color = "#00c853" if row['רווח $'] >= 0 else "#ff4b4b"
-            st.sidebar.write(f"**{row['Ticker']}:** ${row['שווי']:,.2f}")
-            st.sidebar.markdown(f"<p style='color:{row_color}; margin-top:-15px; font-size: 14px;'>{'+' if row['רווח $'] >= 0 else ''}{row['רווח $']:,.2f}$ ({row['רווח %']:.2f}%)</p>", unsafe_allow_html=True)
-
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
     st.link_button("📂 פתח גיליון גוגל שיטס", SHEET_URL)
     
-    t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
+    tab1, tab2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     
-    with t1:
+    with tab1:
         if not live_df.empty:
             def style_pnl(v):
                 color = 'green' if v > 0 else 'red'
                 return f'color: {color}; font-weight: bold'
+            
+            # טבלה מעוצבת
             st.dataframe(live_df.style.format({'שווי': '${:,.2f}', 'רווח $': '${:,.2f}', 'רווח %': '{:.2f}%'}).applymap(style_pnl, subset=['רווח $', 'רווח %']), use_container_width=True, hide_index=True)
+            
             st.divider()
+            # גרף פאי
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
                                  pd.DataFrame([{'Ticker': 'מזומן', 'Value': calculated_cash}])])
-            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4), use_container_width=True)
+            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור הון"), use_container_width=True)
+        else:
+            st.info("אין פוזיציות פתוחות כרגע.")
 
-    with t2:
+    with tab2:
         closed_trades = df[df['Exit_Price'] > 0].copy()
         if not closed_trades.empty:
             current_year = datetime.now().year
