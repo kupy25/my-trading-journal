@@ -9,7 +9,7 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 
 # רענון בטוח לענן - כל 10 שניות
-st_autorefresh(interval=10000, key="analytics_refresh")
+st_autorefresh(interval=10000, key="stable_refresh")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 CASH_NOW = 4957.18 
@@ -93,7 +93,7 @@ try:
     st.title("📊 יומן המסחר של אבי")
     st.link_button("📂 פתח גיליון לעדכון", SHEET_URL, use_container_width=True, type="primary")
     
-    t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 ניתוח טריידים סגורים"])
+    t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     
     with t1:
         if not open_trades.empty:
@@ -102,39 +102,14 @@ try:
             st.dataframe(df_disp.sort_values('Market_Value', ascending=False), use_container_width=True, hide_index=True)
             st.divider()
             chart_data = pd.concat([open_trades[['Ticker', 'Market_Value']], pd.DataFrame([{'Ticker': 'CASH', 'Market_Value': CASH_NOW}])], ignore_index=True)
-            fig = px.pie(chart_data, values='Market_Value', names='Ticker', hole=0.4, title="פיזור תיק נוכחי")
+            fig = px.pie(chart_data, values='Market_Value', names='Ticker', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
             st.plotly_chart(fig, use_container_width=True)
     
     with t2:
         if not closed_trades.empty:
-            # סיכום כללי
             total_realized = closed_trades['PnL'].sum()
             st.markdown(f"### סך רווח ממומש: :{'green' if total_realized >= 0 else 'red'}[${total_realized:,.2f}]")
-            
             st.divider()
-            st.subheader("🎯 ניתוח לפי אסטרטגיה (סיבת כניסה)")
-            
-            # חישוב סטטיסטיקה לפי סיבת כניסה
-            strategy_analysis = closed_trades.groupby('סיבת כניסה').agg({
-                'PnL': ['sum', 'count', lambda x: (x > 0).sum()]
-            }).reset_index()
-            
-            strategy_analysis.columns = ['אסטרטגיה', 'רווח/הפסד מצטבר', 'מספר טריידים', 'טריידים מנצחים']
-            strategy_analysis['אחוז הצלחה'] = (strategy_analysis['טריידים מנצחים'] / strategy_analysis['מספר טריידים'] * 100).map("{:.1f}%".format)
-            
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                st.dataframe(strategy_analysis.sort_values('רווח/הפסד מצטבר', ascending=False), use_container_width=True, hide_index=True)
-            
-            with col2:
-                fig_strat = px.bar(strategy_analysis, x='אסטרטגיה', y='רווח/הפסד מצטבר', 
-                                   color='רווח/הפסד מצטבר', 
-                                   color_continuous_scale=['red', 'green'],
-                                   title="רווח/הפסד לפי סיבת כניסה")
-                st.plotly_chart(fig_strat, use_container_width=True)
-            
-            st.divider()
-            st.subheader("היסטוריית טריידים מלאה")
             st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'Entry_Price', 'Exit_Price', 'PnL', 'סיבת כניסה', 'סיבת יציאה']], use_container_width=True, hide_index=True)
 
 except Exception as e:
