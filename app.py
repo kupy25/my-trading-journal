@@ -9,7 +9,7 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh")
 
-# הגדרת שווי התחלה לחישוב תשואה כללית
+# הגדרת שווי התחלה
 PORTFOLIO_START_VAL = 44302.55 
 
 def get_fee(qty):
@@ -28,7 +28,7 @@ try:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # שליפת המזומן העדכני מהגיליון (לוקח את הערך הלא-אפס האחרון)
+    # שליפת המזומן העדכני מהגיליון
     cash_series = df['מזומן_עדכני'].replace(0, pd.NA).ffill()
     current_cash = cash_series.iloc[-1] if not cash_series.empty else 0.0
 
@@ -78,7 +78,7 @@ try:
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    st.sidebar.metric("מזומן פנוי (מהגיליון)", f"${current_cash:,.2f}")
+    st.sidebar.metric("מזומן פנוי", f"${current_cash:,.2f}")
     
     total_portfolio_val = market_val_total + current_cash
     diff = total_portfolio_val - PORTFOLIO_START_VAL
@@ -92,7 +92,7 @@ try:
     st.sidebar.write("📉 **עמלות מצטברות:**")
     st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
 
-    # מחשבון טרייד מוטמע מלא
+    # מחשבון טרייד
     st.sidebar.divider()
     st.sidebar.subheader("🧮 מחשבון טרייד")
     calc_ticker = st.sidebar.text_input("סימול מניה", value="AAPL")
@@ -100,7 +100,6 @@ try:
     c_stop = st.sidebar.number_input("מחיר סטופ $", value=0.0)
     
     if c_entry > c_stop and c_stop > 0:
-        # סיכון של 1% מהתיק
         risk_amount = PORTFOLIO_START_VAL * 0.01
         q = int(risk_amount / (c_entry - c_stop))
         st.sidebar.success(f"מניה: {calc_ticker}\n\nכמות: {q} יח'\n\nעלות: ${q*c_entry:,.2f}")
@@ -108,26 +107,22 @@ try:
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
     
-    # כפתור רענון/מעבר לגיליון
-    st.link_button("🔗 מעבר לגיליון גוגל שיטס", "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID")
-
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     
     with t1:
         if not open_trades.empty:
-            # עיצוב מותנה לטבלה
+            # פונקציית צביעה מעודכנת (תואמת לגרסאות Pandas חדשות)
             def color_pnl(val):
-                if isinstance(val, str): return ''
                 color = 'green' if val > 0 else 'red'
                 return f'color: {color}'
 
-            styled_df = live_df.style.applymap(color_pnl, subset=['רווח $', 'רווח %'])\
+            # הצגת הטבלה עם העיצוב
+            styled_df = live_df.style.map(color_pnl, subset=['רווח $', 'רווח %'])\
                                      .format({'שווי': "{:,.2f}$", 'רווח $': "{:,.2f}$", 'רווח %': "{:.2f}%"})
             
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
             
             st.divider()
-            # גרף פאי
             pie_data = pd.concat([
                 live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
                 pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash}])
@@ -137,10 +132,21 @@ try:
 
     with t2:
         if not closed_trades.empty:
-            realized = closed_trades['PnL'].sum()
-            st.markdown(f"### סך רווח ממומש (P&L): <span style='color:{'#00c853' if realized >=0 else '#ff4b4b'};'>${realized:,.2f}</span>", unsafe_allow_html=True)
-            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']], use_container_width=True, hide_index=True)
+            # סיכום רווח/הפסד מתחילת שנה (YTD)
+            closed_trades['Exit_Date'] = pd.to_datetime(closed_trades['Exit_Date'], errors='coerce')
+            current_year = pd.Timestamp.now().year
+            ytd_trades = closed_trades[closed_trades['Exit_Date'].dt.year == current_year]
+            ytd_realized = ytd_trades['PnL'].sum()
+            
+            total_realized = closed_trades['PnL'].sum()
+            
+            col1, col2 = st.columns(2)
+            col1.metric("רווח ממומש (כללי)", f"${total_realized:,.2f}")
+            col2.metric(f"רווח ממומש {current_year} (YTD)", f"${ytd_realized:,.2f}")
+            
+            st.divider()
+            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].sort_values('Exit_Date', ascending=False), 
+                         use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"שגיאה בעיבוד הנתונים: {e}")
-    st.info("וודא ששמות העמודות בגיליון תואמים בדיוק לקוד.")
