@@ -22,15 +22,18 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
     
-    # ניקוי נתונים נומריים
+    # ניקוי נתונים נומריים - המרה בטוחה למספרים
     numeric_cols = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL', 'מזומן_עדכני']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # שליפת המזומן העדכני מהגיליון
-    cash_series = df['מזומן_עדכני'].replace(0, pd.NA).ffill()
-    current_cash = cash_series.iloc[-1] if not cash_series.empty else 0.0
+    # שליפת המזומן העדכני - טיפול בטוח בערכים ריקים (פותר את שגיאת ה-NA)
+    if 'מזומן_עדכני' in df.columns:
+        valid_cash = df[df['מזומן_עדכני'] > 0]['מזומן_עדכני']
+        current_cash = float(valid_cash.iloc[-1]) if not valid_cash.empty else 0.0
+    else:
+        current_cash = 0.0
 
     # מיון פוזיציות
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
@@ -53,26 +56,35 @@ try:
         }).reset_index()
         
         tickers = list(summary['Ticker'].unique())
+        # הורדת נתונים מ-Yahoo Finance
         data = yf.download(tickers, period="1d", progress=False)['Close']
         
         for _, row in summary.iterrows():
             t = row['Ticker']
-            price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
-            val = price * row['Qty']
-            market_val_total += val
-            
-            avg_cost = row['עלות כניסה'] / row['Qty']
-            pnl_usd = (val - row['עלות כניסה']) - get_fee(row['Qty'])
-            pnl_pct = ((price - avg_cost) / avg_cost) * 100
-            
-            live_list.append({
-                'Ticker': t, 
-                'כמות': row['Qty'], 
-                'שווי': val, 
-                'רווח $': pnl_usd, 
-                'רווח %': pnl_pct,
-                'סיבת כניסה': row['סיבת כניסה']
-            })
+            try:
+                # חילוץ מחיר אחרון בצורה בטוחה
+                if len(tickers) > 1:
+                    price = data[t].dropna().iloc[-1]
+                else:
+                    price = data.dropna().iloc[-1]
+                
+                val = price * row['Qty']
+                market_val_total += val
+                
+                avg_cost = row['עלות כניסה'] / row['Qty'] if row['Qty'] != 0 else 0
+                pnl_usd = (val - row['עלות כניסה']) - get_fee(row['Qty'])
+                pnl_pct = ((price - avg_cost) / avg_cost) * 100 if avg_cost != 0 else 0
+                
+                live_list.append({
+                    'Ticker': t, 
+                    'כמות': row['Qty'], 
+                    'שווי': val, 
+                    'רווח $': pnl_usd, 
+                    'רווח %': pnl_pct,
+                    'סיבת כניסה': row['סיבת כניסה']
+                })
+            except:
+                continue
         
         live_df = pd.DataFrame(live_list)
 
@@ -110,13 +122,12 @@ try:
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     
     with t1:
-        if not open_trades.empty:
-            # פונקציית צביעה מעודכנת (תואמת לגרסאות Pandas חדשות)
+        if not open_trades.empty and not live_df.empty:
+            # פונקציית צביעה
             def color_pnl(val):
                 color = 'green' if val > 0 else 'red'
                 return f'color: {color}'
 
-            # הצגת הטבלה עם העיצוב
             styled_df = live_df.style.map(color_pnl, subset=['רווח $', 'רווח %'])\
                                      .format({'שווי': "{:,.2f}$", 'רווח $': "{:,.2f}$", 'רווח %': "{:.2f}%"})
             
@@ -132,17 +143,15 @@ try:
 
     with t2:
         if not closed_trades.empty:
-            # סיכום רווח/הפסד מתחילת שנה (YTD)
             closed_trades['Exit_Date'] = pd.to_datetime(closed_trades['Exit_Date'], errors='coerce')
             current_year = pd.Timestamp.now().year
             ytd_trades = closed_trades[closed_trades['Exit_Date'].dt.year == current_year]
             ytd_realized = ytd_trades['PnL'].sum()
-            
             total_realized = closed_trades['PnL'].sum()
             
-            col1, col2 = st.columns(2)
-            col1.metric("רווח ממומש (כללי)", f"${total_realized:,.2f}")
-            col2.metric(f"רווח ממומש {current_year} (YTD)", f"${ytd_realized:,.2f}")
+            c1, c2 = st.columns(2)
+            c1.metric("רווח ממומש (כללי)", f"${total_realized:,.2f}")
+            c2.metric(f"רווח ממומש {current_year}", f"${ytd_realized:,.2f}")
             
             st.divider()
             st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].sort_values('Exit_Date', ascending=False), 
