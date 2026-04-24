@@ -5,31 +5,35 @@ import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 from streamlit_autorefresh import st_autorefresh
 
-# 1. הגדרות דף ורענון אוטומטי (15 שניות)
+# 1. הגדרות דף ורענון אוטומטי (כל 15 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh")
 
-# הגדרת שווי התחלה לחישוב תשואה
+# הגדרת שווי התחלה לחישוב תשואה (לפי הנתונים שלך)
 PORTFOLIO_START_VAL = 44302.55 
+SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
 def get_fee(qty):
+    """חישוב עמלת אינטראקטיב ברוקרס"""
     return 3.50 + (qty * 0.0078) if qty > 0 else 0
 
-# 2. חיבור לגיליון
+# 2. חיבור וקריאת נתונים
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
+    # קריאה מהגיליון
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
     
-    # ניקוי נתונים נומריים
+    # ניקוי עמודות נומריות
     numeric_cols = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL', 'מזומן_עדכני', 'מזומן']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # שליפת המזומן העדכני (בדיקה במספר עמודות אפשריות)
-    current_cash = 8377.65 # ברירת מחדל לפי מה שציינת
+    # --- חישוב מזומן ---
+    # בודק אם יש עמודת מזומן בגיליון, אם לא משתמש בערך האחרון שנתת
+    current_cash = 8377.65 
     for col in ['מזומן_עדכני', 'מזומן']:
         if col in df.columns:
             valid_rows = df[df[col] > 0][col]
@@ -41,12 +45,12 @@ try:
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # חישוב עמלות
+    # חישוב עמלות מצטברות
     fees_open = open_trades['Qty'].apply(get_fee).sum()
     fees_closed = (closed_trades['Qty'].apply(get_fee).sum() * 2)
     total_fees = fees_open + fees_closed
 
-    # נתוני לייב
+    # --- נתוני לייב מ-YAHOO FINANCE ---
     market_val_total = 0
     live_list = []
 
@@ -63,7 +67,12 @@ try:
         for _, row in summary.iterrows():
             t = row['Ticker']
             try:
-                price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
+                # חילוץ מחיר אחרון
+                if len(tickers) > 1:
+                    price = data[t].dropna().iloc[-1]
+                else:
+                    price = data.dropna().iloc[-1]
+                
                 val = price * row['Qty']
                 market_val_total += val
                 
@@ -79,14 +88,14 @@ try:
         
         live_df = pd.DataFrame(live_list)
 
-    # --- SIDEBAR ---
+    # --- SIDEBAR (ניהול חשבון) ---
     st.sidebar.header("⚙️ ניהול חשבון")
     st.sidebar.metric("מזומן פנוי", f"${current_cash:,.2f}")
     
     total_portfolio_val = market_val_total + current_cash
     diff = total_portfolio_val - PORTFOLIO_START_VAL
     
-    st.sidebar.write("### שווי תיק כולל")
+    st.sidebar.write("### שווי תיק כולל (Live)")
     st.sidebar.write(f"## ${total_portfolio_val:,.2f}")
     
     color = "#00c853" if diff >= 0 else "#ff4b4b"
@@ -95,7 +104,7 @@ try:
     st.sidebar.write("📉 **עמלות מצטברות:**")
     st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold; margin-top:-10px;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
 
-    # מחשבון טרייד
+    # מחשבון טרייד מוטמע
     st.sidebar.divider()
     st.sidebar.subheader("🧮 מחשבון טרייד")
     calc_ticker = st.sidebar.text_input("סימול מניה", value="AAPL")
@@ -103,20 +112,21 @@ try:
     c_stop = st.sidebar.number_input("מחיר סטופ $", value=0.0)
     
     if c_entry > c_stop and c_stop > 0:
-        risk_amount = PORTFOLIO_START_VAL * 0.01
+        risk_amount = PORTFOLIO_START_VAL * 0.01 # סיכון של 1%
         q = int(risk_amount / (c_entry - c_stop))
         st.sidebar.success(f"מניה: {calc_ticker}\n\nכמות: {q} יח'\n\nעלות: ${q*c_entry:,.2f}")
 
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
     
-    # כפתור קישור לגוגל שיטס - כאן תכניס את הקישור שלך
-    st.link_button("📂 פתח את גיליון הגוגל שיטס שלך", "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID_HERE")
+    # כפתור קישור ישיר לגיליון שלך
+    st.link_button("📂 פתח את גיליון הגוגל שיטס שלך", SHEET_URL)
 
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     
     with t1:
         if not open_trades.empty and not live_df.empty:
+            # פונקציית צביעה לטבלה
             def color_pnl(val):
                 return f'color: {"green" if val > 0 else "red"}'
 
@@ -125,14 +135,23 @@ try:
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
             
             st.divider()
+            # גרף פיזור תיק
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
                                  pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash}])])
-            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור תיק"), use_container_width=True)
+            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור תיק (כולל מזומן)"), use_container_width=True)
 
     with t2:
         if not closed_trades.empty:
             total_realized = closed_trades['PnL'].sum()
-            st.metric("סך רווח ממומש (כללי)", f"${total_realized:,.2f}")
+            # סיכום YTD
+            closed_trades['Exit_Date'] = pd.to_datetime(closed_trades['Exit_Date'], errors='coerce')
+            ytd_trades = closed_trades[closed_trades['Exit_Date'].dt.year == pd.Timestamp.now().year]
+            ytd_realized = ytd_trades['PnL'].sum()
+
+            c1, c2 = st.columns(2)
+            c1.metric("רווח ממומש (כללי)", f"${total_realized:,.2f}")
+            c2.metric("רווח ממומש השנה (YTD)", f"${ytd_realized:,.2f}")
+            
             st.divider()
             st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].sort_values('Exit_Date', ascending=False), 
                          use_container_width=True, hide_index=True)
