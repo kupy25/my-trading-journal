@@ -9,9 +9,9 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh")
 
-# --- נתונים מעודכנים לפי הדיווח שלך ---
-CASH_VAL_FIXED = 12298.89  # המזומן הפנוי המעודכן
-PORTFOLIO_START_VAL = 44302.55 
+# --- הגדרות יסוד ---
+PORTFOLIO_START_VAL = 44302.55  # שווי התיק ביום פתיחת היומן
+CASH_AT_START = 12298.89       # המזומן שהיה פנוי ביום פתיחת היומן
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
 def get_fee(qty):
@@ -25,23 +25,27 @@ try:
     df.columns = df.columns.str.strip()
     
     # ניקוי עמודות נומריות
-    numeric_cols = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL', 'מזומן_עדכני']
+    numeric_cols = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # קביעת המזומן (עדיפות לערך מהגיליון אם קיים, אחרת הערך המעודכן שסיפקת)
-    current_cash = CASH_VAL_FIXED
-    if 'מזומן_עדכני' in df.columns:
-        valid_rows = df[df['מזומן_עדכני'] > 0]['מזומן_עדכני']
-        if not valid_rows.empty:
-            current_cash = float(valid_rows.iloc[-1])
+    # --- חישוב מזומן פנוי דינמי ---
+    # 1. רווח/הפסד מטריידים סגורים (כבר כולל את החזר הקרן + הרווח)
+    realized_pnl = df[df['Exit_Price'] > 0]['PnL'].sum()
+    
+    # 2. כסף שמושקע כרגע בפוזיציות פתוחות
+    open_trades_mask = (df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")
+    money_in_open_positions = df[open_trades_mask]['עלות כניסה'].sum()
+    
+    # המזומן הנוכחי = מזומן התחלתי + רווחים ממומשים - כסף שנעול כרגע במניות
+    current_cash = CASH_AT_START + realized_pnl - money_in_open_positions
 
-    # מיון פוזיציות
-    open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
+    # מיון פוזיציות לתצוגה
+    open_trades = df[open_trades_mask].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # חישוב לייב
+    # חישוב שווי שוק לייב (Live Market Value)
     market_val_total = 0
     live_list = []
 
@@ -58,7 +62,12 @@ try:
         for _, row in summary.iterrows():
             t = row['Ticker']
             try:
-                price = data[t].dropna().iloc[-1] if len(tickers) > 1 else data.dropna().iloc[-1]
+                # טיפול במקרה של טיקר יחיד או מרובים ב-yfinance
+                if len(tickers) > 1:
+                    price = data[t].dropna().iloc[-1]
+                else:
+                    price = data.dropna().iloc[-1]
+                    
                 val = price * row['Qty']
                 market_val_total += val
                 
@@ -74,19 +83,19 @@ try:
         
         live_df = pd.DataFrame(live_list)
 
-    # --- SIDEBAR ---
+    # --- SIDEBAR (חישובי שווי כולל) ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    st.sidebar.metric("מזומן פנוי", f"${current_cash:,.2f}")
+    st.sidebar.metric("מזומן פנוי (מחושב)", f"${current_cash:,.2f}")
     
-    # שווי התיק הוא סכום המזומן וערך השוק של המניות
+    # שווי התיק = מזומן פנוי + שווי שוק נוכחי של המניות
     total_portfolio_val = market_val_total + current_cash
-    diff = total_portfolio_val - PORTFOLIO_START_VAL
+    diff_from_start = total_portfolio_val - PORTFOLIO_START_VAL
     
     st.sidebar.write("### שווי תיק כולל (Live)")
     st.sidebar.write(f"## ${total_portfolio_val:,.2f}")
     
-    color = "#00c853" if diff >= 0 else "#ff4b4b"
-    st.sidebar.markdown(f"<p style='color:{color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff >= 0 else ''}{diff:,.2f}$</p>", unsafe_allow_html=True)
+    color = "#00c853" if diff_from_start >= 0 else "#ff4b4b"
+    st.sidebar.markdown(f"<p style='color:{color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff_from_start >= 0 else ''}{diff_from_start:,.2f}$</p>", unsafe_allow_html=True)
     
     # מחשבון טרייד
     st.sidebar.divider()
@@ -96,13 +105,13 @@ try:
     c_stop = st.sidebar.number_input("מחיר סטופ $", value=0.0)
     
     if c_entry > c_stop and c_stop > 0:
-        risk_amount = PORTFOLIO_START_VAL * 0.01
+        risk_amount = PORTFOLIO_START_VAL * 0.01 # סיכון של 1% מהתיק
         q = int(risk_amount / (c_entry - c_stop))
         st.sidebar.success(f"מניה: {calc_ticker}\n\nכמות: {q} יח'\n\nעלות: ${q*c_entry:,.2f}")
 
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
-    st.link_button("📂 פתח את גיליון הגוגל שיטס שלך", SHEET_URL)
+    st.link_button("📂 פתח את גיליון הגוגל שיטס", SHEET_URL)
 
     t1, t2 = st.tabs(["🔓 פוזיציות פתוחות", "🔒 טריידים סגורים"])
     
@@ -117,14 +126,13 @@ try:
             st.divider()
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), 
                                  pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash}])])
-            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור תיק ריאלי"), use_container_width=True)
+            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור תיק ריאלי (מזומן נגד מניות)"), use_container_width=True)
 
     with t2:
         if not closed_trades.empty:
-            total_realized = closed_trades['PnL'].sum()
-            st.metric("סך רווח ממומש (כללי)", f"${total_realized:,.2f}")
-            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].sort_values('Exit_Date', ascending=False), 
+            st.metric("סך רווח ממומש", f"${realized_pnl:,.2f}")
+            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה']].sort_values('Exit_Date', ascending=False), 
                          use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"שגיאה: {e}")
+    st.error(f"שגיאה בעיבוד הנתונים: {e}")
