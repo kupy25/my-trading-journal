@@ -4,24 +4,21 @@ import yfinance as yf
 import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 from streamlit_autorefresh import st_autorefresh
-import datetime
 
-# 1. הגדרות דף ורענון אוטומטי
+# 1. הגדרות דף ורענון
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="dynamic_cash_refresh")
+st_autorefresh(interval=10000, key="verified_static_cash")
 
-# 2. נתוני בסיס (לפני הטריידים בגיליון)
-CASH_START_REFERENCE = 8377.65  
-PORTFOLIO_START_VAL = 44302.55 
+# 2. נתוני בסיס
+PORTFOLIO_START_VAL = 44302.55 #
 
 def get_fee(qty):
     return 3.50 + (qty * 0.0078) if qty > 0 else 0
 
 def color_pnl(val):
     try:
-        if isinstance(val, str):
-            val = float(val.replace('%', '').replace('$', '').replace(',', ''))
-        return f'color: {"red" if val < 0 else "green"}; font-weight: bold;'
+        color = 'red' if val < 0 else 'green'
+        return f'color: {color}; font-weight: bold;'
     except: return ''
 
 # 3. חיבור לגיליון
@@ -31,29 +28,25 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
     
-    # המרת עמודות למספרים
-    for col in ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'עלות יציאה', 'PnL']:
+    # משיכת מזומן סטטי מעמודה N שורה 2 (מזומן_עדכני)
+    # אנו לוקחים את הערך הראשון שנמצא בעמודה הזו
+    if 'מזומן_עדכני' in df.columns:
+        dynamic_cash = pd.to_numeric(df['מזומן_עדכני'], errors='coerce').iloc[0]
+    else:
+        dynamic_cash = 0.0
+        st.sidebar.warning("עמודה 'מזומן_עדכני' לא נמצאה בגיליון")
+
+    # המרת שאר העמודות
+    for col in ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # --- חישוב מזומן דינמי ---
-    # 1. סך כל הכסף שיצא על קניות (כל השורות)
-    total_spent_on_entries = df['עלות כניסה'].sum()
-    
-    # 2. סך כל הכסף שנכנס ממכירות (רק טריידים סגורים)
-    total_received_from_exits = df['עלות יציאה'].sum()
-    
-    # 3. חישוב עמלות (קנייה לכולם + מכירה לסגורים)
-    fees_on_entries = df['Qty'].apply(get_fee).sum()
-    fees_on_exits = df[df['Exit_Price'] > 0]['Qty'].apply(get_fee).sum()
-    total_fees_accumulated = fees_on_entries + fees_on_exits
-    
-    # 4. המזומן הפנוי האמיתי כרגע
-    dynamic_cash = CASH_START_REFERENCE - total_spent_on_entries + total_received_from_exits - total_fees_accumulated
-
-    # הפרדה לתצוגה
-    open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull())].copy()
+    # הפרדה
+    open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
+
+    # חישוב עמלות מצטברות לצורך תצוגה בלבד
+    total_fees = (df['Qty'].apply(get_fee).sum()) + (closed_trades['Qty'].apply(get_fee).sum())
 
     # נתוני לייב
     market_val_total = 0
@@ -76,7 +69,7 @@ try:
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    st.sidebar.metric("מזומן פנוי (דינמי)", f"${dynamic_cash:,.2f}")
+    st.sidebar.metric("מזומן פנוי", f"${dynamic_cash:,.2f}")
     
     total_portfolio_now = market_val_total + dynamic_cash
     diff_ytd = total_portfolio_now - PORTFOLIO_START_VAL
@@ -84,21 +77,23 @@ try:
     st.sidebar.write("### שווי תיק כולל")
     st.sidebar.write(f"## ${total_portfolio_now:,.2f}")
     
+    # תיקון תצוגת רווח/הפסד (ירוק/אדום)
     c_ytd = "#00c853" if diff_ytd >= 0 else "#ff4b4b"
-    st.sidebar.markdown(f"<p style='color:{c_ytd}; font-size: 20px; font-weight: bold;'>{'+' if diff_ytd >= 0 else ''}{diff_ytd:,.2f}$</p>", unsafe_allow_html=True)
+    icon = "▲" if diff_ytd >= 0 else "▼"
+    st.sidebar.markdown(f"<h3 style='color:{c_ytd}; margin:0;'>{icon} ${abs(diff_ytd):,.2f}</h3>", unsafe_allow_html=True)
     
     st.sidebar.write("📉 **עמלות מצטברות:**")
-    st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold;'>-${total_fees_accumulated:,.2f}</p>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
 
-    # מחשבון
+    # מחשבון בתוך פופ-אובר לחיסכון במקום
     st.sidebar.divider()
     with st.sidebar.expander("🧮 מחשבון טרייד חדש"):
-        calc_t = st.text_input("מניה", value="AAPL").upper()
         c_entry = st.number_input("כניסה $", value=0.0)
         c_stop = st.number_input("סטופ $", value=0.0)
         if c_entry > c_stop:
-            q = int((PORTFOLIO_START_VAL * 0.01) / (c_entry - c_stop))
-            st.success(f"כמות: {q} | עלות: ${q*c_entry:,.2f}")
+            risk = PORTFOLIO_START_VAL * 0.01
+            qty = int(risk / (c_entry - c_stop))
+            st.success(f"כמות: {qty} | עלות: ${qty*c_entry:,.2f}")
 
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
@@ -109,6 +104,7 @@ try:
         if not live_list == []:
             st.dataframe(live_df.style.map(color_pnl, subset=['רווח_דולרי', 'רווח_אחוז']), use_container_width=True, hide_index=True)
             st.divider()
+            st.subheader("🥧 התפלגות תיק")
             pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), pd.DataFrame([{'Ticker': 'מזומן', 'Value': dynamic_cash}])])
             fig = px.pie(pie_data, values='Value', names='Ticker', hole=0.4)
             fig.update_traces(textinfo='percent+label')
