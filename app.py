@@ -7,10 +7,10 @@ from streamlit_autorefresh import st_autorefresh
 
 # 1. הגדרות דף ורענון
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="verified_static_cash")
+st_autorefresh(interval=10000, key="verified_static_cash_v2")
 
 # 2. נתוני בסיס
-PORTFOLIO_START_VAL = 44302.55 #
+PORTFOLIO_START_VAL = 44302.55 
 
 def get_fee(qty):
     return 3.50 + (qty * 0.0078) if qty > 0 else 0
@@ -28,24 +28,29 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
     
-    # משיכת מזומן סטטי מעמודה N שורה 2 (מזומן_עדכני)
-    # אנו לוקחים את הערך הראשון שנמצא בעמודה הזו
+    # --- טיפול חסין במזומן ---
+    dynamic_cash = 0.0
     if 'מזומן_עדכני' in df.columns:
-        dynamic_cash = pd.to_numeric(df['מזומן_עדכני'], errors='coerce').iloc[0]
+        # מנקה תווים שאינם מספרים וממיר לערך מספרי
+        raw_cash = str(df['מזומן_עדכני'].iloc[0]).replace(',', '').replace('$', '').strip()
+        try:
+            dynamic_cash = float(raw_cash)
+        except ValueError:
+            st.sidebar.error("⚠️ הערך בעמודה 'מזומן_עדכני' אינו מספר תקין")
+            dynamic_cash = 0.0
     else:
-        dynamic_cash = 0.0
-        st.sidebar.warning("עמודה 'מזומן_עדכני' לא נמצאה בגיליון")
+        st.sidebar.warning("⚠️ עמודה 'מזומן_עדכני' (עמודה N) לא נמצאה")
 
-    # המרת שאר העמודות
+    # המרת שאר העמודות למספרים
     for col in ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'PnL']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # הפרדה
+    # הפרדה לפוזיציות
     open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
-    # חישוב עמלות מצטברות לצורך תצוגה בלבד
+    # חישוב עמלות
     total_fees = (df['Qty'].apply(get_fee).sum()) + (closed_trades['Qty'].apply(get_fee).sum())
 
     # נתוני לייב
@@ -58,13 +63,15 @@ try:
             data = yf.download(tickers, period="1d", progress=False)['Close']
             for _, row in summary.iterrows():
                 t = row['Ticker']
-                price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
-                val = price * row['Qty']
-                market_val_total += val
-                avg_cost = row['עלות כניסה'] / row['Qty']
-                pnl_usd = (val - row['עלות כניסה']) - get_fee(row['Qty'])
-                pnl_pct = ((price - avg_cost) / avg_cost) * 100
-                live_list.append({'Ticker': t, 'כמות': row['Qty'], 'שווי': val, 'רווח_דולרי': pnl_usd, 'רווח_אחוז': pnl_pct, 'סיבת כניסה': row['סיבת כניסה']})
+                try:
+                    price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
+                    val = price * row['Qty']
+                    market_val_total += val
+                    avg_cost = row['עלות כניסה'] / row['Qty']
+                    pnl_usd = (val - row['עלות כניסה']) - get_fee(row['Qty'])
+                    pnl_pct = ((price - avg_cost) / avg_cost) * 100
+                    live_list.append({'Ticker': t, 'כמות': row['Qty'], 'שווי': val, 'רווח_דולרי': pnl_usd, 'רווח_אחוז': pnl_pct, 'סיבת כניסה': row['סיבת כניסה']})
+                except: continue
         live_df = pd.DataFrame(live_list)
 
     # --- SIDEBAR ---
@@ -77,7 +84,6 @@ try:
     st.sidebar.write("### שווי תיק כולל")
     st.sidebar.write(f"## ${total_portfolio_now:,.2f}")
     
-    # תיקון תצוגת רווח/הפסד (ירוק/אדום)
     c_ytd = "#00c853" if diff_ytd >= 0 else "#ff4b4b"
     icon = "▲" if diff_ytd >= 0 else "▼"
     st.sidebar.markdown(f"<h3 style='color:{c_ytd}; margin:0;'>{icon} ${abs(diff_ytd):,.2f}</h3>", unsafe_allow_html=True)
@@ -85,7 +91,7 @@ try:
     st.sidebar.write("📉 **עמלות מצטברות:**")
     st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold;'>-${total_fees:,.2f}</p>", unsafe_allow_html=True)
 
-    # מחשבון בתוך פופ-אובר לחיסכון במקום
+    # מחשבון
     st.sidebar.divider()
     with st.sidebar.expander("🧮 מחשבון טרייד חדש"):
         c_entry = st.number_input("כניסה $", value=0.0)
@@ -117,4 +123,4 @@ try:
             st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].sort_values('Exit_Date', ascending=False), use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"שגיאה: {e}")
+    st.error(f"שגיאה כללית: {e}")
