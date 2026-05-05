@@ -9,10 +9,12 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
 st_autorefresh(interval=15000, key="datarefresh")
 
-# --- נתוני יסוד דינמיים ---
-# הגדר כאן את סך המזומן שהיה לך לפני שפתחת את הפוזיציות שמופיעות כרגע בגיליון
-TOTAL_CASH_POOL = 44302.55     # הקופה הכוללת (מזומן + עלות המניות הפתוחות)
-PORTFOLIO_START_VAL = 44302.55 # לחישוב רווח כללי
+# --- הגדרות מזומן מדויקות ---
+CASH_BASIS = 9535.30  # המזומן שהיה לך בברוקר לפני הטרייד האחרון
+# כאן תרשום את הטיקרים שהיו פתוחים כבר כשהיו לך 9535 דולר (כדי שהקוד לא יחסיר אותם שוב)
+ALREADY_OPEN_TICKERS = ['BITB', 'CIFR', 'CRML', 'MSTR'] 
+
+PORTFOLIO_START_VAL = 44302.55 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/11lxQ5QH3NbgwUQZ18ARrpYaHCGPdxF6o9vJvPf0Anpg/edit?gid=0#gid=0"
 
 def get_fee(qty):
@@ -32,12 +34,13 @@ try:
 
     # הפרדה לפוזיציות
     open_trades_raw = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "")].copy()
-    closed_trades = df[df['Exit_Price'] > 0].copy()
-
-    # --- חישוב מזומן פנוי דינמי ---
-    # המזומן הפנוי = הקופה הכוללת פחות הכסף שהושקע בפוזיציות פתוחות
-    total_invested_cost = open_trades_raw['עלות כניסה'].sum()
-    current_cash_dynamic = TOTAL_CASH_POOL - total_invested_cost
+    
+    # --- חישוב מזומן דינמי מתוקן ---
+    # אנחנו מחסירים מהמזומן רק פוזיציות שהן חדשות (לא היו ברשימת הבסיס)
+    new_trades = open_trades_raw[~open_trades_raw['Ticker'].isin(ALREADY_OPEN_TICKERS)]
+    cost_of_new_trades = new_trades['עלות כניסה'].sum()
+    
+    current_cash_dynamic = CASH_BASIS - cost_of_new_trades
 
     market_val_total = 0
     live_list = []
@@ -74,13 +77,13 @@ try:
         
         live_df = pd.DataFrame(live_list)
 
-    # --- חישובי שורה תחתונה ---
+    # --- חישוב שווי כולל ---
     total_portfolio_live = current_cash_dynamic + market_val_total
     diff_from_start = total_portfolio_live - PORTFOLIO_START_VAL
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    st.sidebar.metric("מזומן פנוי (דינמי)", f"${current_cash_dynamic:,.2f}")
+    st.sidebar.metric("מזומן פנוי (מעודכן)", f"${current_cash_dynamic:,.2f}")
     st.sidebar.metric("שווי מניות (Live)", f"${market_val_total:,.2f}")
     
     st.sidebar.divider()
@@ -89,18 +92,6 @@ try:
     
     color = "#00c853" if diff_from_start >= 0 else "#ff4b4b"
     st.sidebar.markdown(f"<p style='color:{color}; font-size: 20px; font-weight: bold; margin-top:-10px;'>{'+' if diff_from_start >= 0 else ''}{diff_from_start:,.2f}$</p>", unsafe_allow_html=True)
-    
-    # מחשבון טרייד
-    st.sidebar.divider()
-    st.sidebar.subheader("🧮 מחשבון טרייד")
-    calc_ticker = st.sidebar.text_input("סימול מניה", value="AAPL")
-    c_entry = st.sidebar.number_input("מחיר כניסה $", value=0.0)
-    c_stop = st.sidebar.number_input("מחיר סטופ $", value=0.0)
-    
-    if c_entry > c_stop and c_stop > 0:
-        risk_amount = total_portfolio_live * 0.01
-        q = int(risk_amount / (c_entry - c_stop))
-        st.sidebar.success(f"כמות: {q} יח'\n\nעלות: ${q*c_entry:,.2f}")
 
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
@@ -109,27 +100,15 @@ try:
     
     with t1:
         if live_list:
-            def color_pnl(val):
-                return f'color: {"green" if val > 0 else "red"}'
-            
-            styled_df = live_df.style.map(color_pnl, subset=['רווח $', 'רווח %'])\
-                                     .format({
-                                         'מחיר ממוצע': "{:.2f}$", 'מחיר שוק': "{:.2f}$",
-                                         'שווי פוזיציה': "{:,.2f}$", 'רווח $': "{:,.2f}$", 'רווח %': "{:.2f}%"
-                                     })
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            def format_pnl(val): return f'color: {"green" if val > 0 else "red"}'
+            st.dataframe(live_df.style.map(format_pnl, subset=['רווח $', 'רווח %'])\
+                         .format({'מחיר ממוצע': "{:.2f}$", 'מחיר שוק': "{:.2f}$", 'שווי פוזיציה': "{:,.2f}$", 'רווח $': "{:,.2f}$", 'רווח %': "{:.2f}%"}), 
+                         use_container_width=True, hide_index=True)
             
             st.divider()
-            pie_data = pd.concat([
-                live_df[['Ticker', 'שווי פוזיציה']].rename(columns={'שווי פוזיציה': 'Value'}), 
-                pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash_dynamic}])
-            ])
-            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור תיק ריאלי"), use_container_width=True)
-
-    with t2:
-        if not closed_trades.empty:
-            st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL']].sort_values('Exit_Date', ascending=False), 
-                         use_container_width=True, hide_index=True)
+            pie_data = pd.concat([live_df[['Ticker', 'שווי פוזיציה']].rename(columns={'שווי פוזיציה': 'Value'}), 
+                                 pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash_dynamic}])])
+            st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4, title="פיזור תיק"), use_container_width=True)
 
 except Exception as e:
     st.error(f"שגיאה: {e}")
