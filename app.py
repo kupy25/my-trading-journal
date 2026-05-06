@@ -7,13 +7,15 @@ from streamlit_autorefresh import st_autorefresh
 
 # 1. הגדרות דף ורענון
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="auto_calc_cash_v4")
+st_autorefresh(interval=10000, key="final_dynamic_cash_fix")
 
-# 2. נתוני ייחוס לחישוב אוטומטי
-CASH_ANCHOR = 8377.65  
-PORTFOLIO_START_VAL = 44302.55
+# 2. הגדרת נקודת ייחוס למזומן (נכון ל-28/01/2026)
+# זהו הסכום המדויק שהיה לך לפני הפעולות האחרונות
+CASH_REFERENCE = 8377.65 
+PORTFOLIO_START_VAL = 44302.55 
 
 def get_fee(qty):
+    # $3.50 + עמלות משתנות של $0.0078 למניה
     return 3.50 + (qty * 0.0078) if qty > 0 else 0
 
 def color_pnl(val):
@@ -29,33 +31,40 @@ try:
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
     
-    # המרת עמודות למספרים בצורה בטוחה
+    # המרת עמודות למספרים
     numeric_cols = ['Qty', 'Entry_Price', 'Exit_Price', 'עלות כניסה', 'עלות יציאה', 'PnL']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # --- חישוב מזומן אוטומטי ---
-    # חישוב רק עבור פעולות שבוצעו מתאריך היעד שבו המזומן היה מעודכן
-    new_entries = df[df['Entry_Date'] >= '2026-01-29']
+    # --- חישוב מזומן דינמי ---
+    # אנחנו מחשבים את השינויים שקרו מאז שנקודת הייחוס (CASH_REFERENCE) הייתה נכונה
+    # החישוב כולל את הקנייה של APLD וכל פעולה עתידית שתכניס לגיליון
+    
+    # סינון פעולות חדשות (מה-29/01 ואילך)
+    new_activity = df[df['Entry_Date'] >= '2026-01-29']
     new_exits = df[df['Exit_Date'] >= '2026-01-29']
     
-    current_cash = CASH_ANCHOR - new_entries['עלות כניסה'].sum() + new_exits['עלות יציאה'].sum()
+    cash_spent = new_activity['עלות כניסה'].sum()
+    cash_gained = new_exits['עלות יציאה'].sum()
+    
+    # חישוב עמלות לפעולות החדשות
+    fees_new = new_activity['Qty'].apply(get_fee).sum() + new_exits['Qty'].apply(get_fee).sum()
+    
+    # המזומן המעודכן
+    dynamic_cash = CASH_REFERENCE - cash_spent + cash_gained - fees_new
 
-    # חישוב עמלות מצטברות
-    fees_buy = df['Qty'].apply(get_fee).sum()
-    fees_sell = df[df['Exit_Price'] > 0]['Qty'].apply(get_fee).sum()
-    total_fees_accumulated = fees_buy + fees_sell
+    # חישוב עמלות מצטברות לכל התיק (לתצוגה בלבד)
+    total_fees_ytd = df['Qty'].apply(get_fee).sum() + df[df['Exit_Price'] > 0]['Qty'].apply(get_fee).sum()
 
-    # הפרדה
-    open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Ticker'] != "") & (df['Qty'] > 0)].copy()
+    # הפרדה לפוזיציות
+    open_trades = df[(df['Exit_Price'] == 0) & (df['Ticker'].notnull()) & (df['Qty'] > 0)].copy()
     closed_trades = df[df['Exit_Price'] > 0].copy()
 
     market_val_total = 0
     live_list = []
     
     if not open_trades.empty:
-        # איחוד פוזיציות וטיפול בחלוקה באפס
         summary = open_trades.groupby('Ticker').agg({'Qty': 'sum', 'עלות כניסה': 'sum', 'סיבת כניסה': 'first'}).reset_index()
         tickers = [t for t in summary['Ticker'].unique() if t]
         
@@ -63,13 +72,13 @@ try:
             data = yf.download(tickers, period="1d", progress=False)['Close']
             for _, row in summary.iterrows():
                 t = row['Ticker']
-                if row['Qty'] <= 0: continue # הגנה נוספת מחלוקה באפס
+                if row['Qty'] <= 0: continue
                 
                 try:
                     price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
                     val = price * row['Qty']
                     market_val_total += val
-                    avg_cost = row['עלות כניסה'] / row['Qty'] # כאן קרתה השגיאה
+                    avg_cost = row['עלות כניסה'] / row['Qty']
                     pnl_usd = (val - row['עלות כניסה']) - get_fee(row['Qty'])
                     pnl_pct = ((price - avg_cost) / avg_cost) * 100
                     live_list.append({'Ticker': t, 'כמות': row['Qty'], 'שווי': val, 'רווח_דולרי': pnl_usd, 'רווח_אחוז': pnl_pct, 'סיבת כניסה': row['סיבת כניסה']})
@@ -78,9 +87,9 @@ try:
 
     # --- SIDEBAR ---
     st.sidebar.header("⚙️ ניהול חשבון")
-    st.sidebar.metric("מזומן פנוי (אוטומטי)", f"${current_cash:,.2f}")
+    st.sidebar.metric("מזומן פנוי", f"${dynamic_cash:,.2f}")
     
-    total_portfolio_now = market_val_total + current_cash
+    total_portfolio_now = market_val_total + dynamic_cash
     diff_ytd = total_portfolio_now - PORTFOLIO_START_VAL
     
     st.sidebar.write("### שווי תיק כולל")
@@ -91,7 +100,7 @@ try:
     st.sidebar.markdown(f"<h3 style='color:{c_ytd}; margin:0;'>{icon} ${abs(diff_ytd):,.2f}</h3>", unsafe_allow_html=True)
     
     st.sidebar.write("📉 **עמלות מצטברות:**")
-    st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold;'>-${total_fees_accumulated:,.2f}</p>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<p style='color:#ff4b4b; font-size: 18px; font-weight: bold;'>-${total_fees_ytd:,.2f}</p>", unsafe_allow_html=True)
 
     # --- מסך ראשי ---
     st.title("📊 יומן המסחר של אבי")
@@ -103,7 +112,8 @@ try:
         if not live_list == []:
             st.dataframe(live_df.style.map(color_pnl, subset=['רווח_דולרי', 'רווח_אחוז']), use_container_width=True, hide_index=True)
             st.divider()
-            pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), pd.DataFrame([{'Ticker': 'מזומן', 'Value': current_cash}])])
+            st.subheader("🥧 התפלגות תיק")
+            pie_data = pd.concat([live_df[['Ticker', 'שווי']].rename(columns={'שווי': 'Value'}), pd.DataFrame([{'Ticker': 'מזומן', 'Value': dynamic_cash}])])
             st.plotly_chart(px.pie(pie_data, values='Value', names='Ticker', hole=0.4), use_container_width=True)
 
     with t2:
@@ -113,4 +123,4 @@ try:
             st.dataframe(closed_trades[['Ticker', 'Entry_Date', 'Exit_Date', 'Qty', 'PnL', 'סיבת כניסה', 'סיבת יציאה']].sort_values('Exit_Date', ascending=False), use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"שגיאה כללית: {e}")
+    st.error(f"שגיאה: {e}")
