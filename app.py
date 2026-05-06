@@ -5,13 +5,13 @@ import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 from streamlit_autorefresh import st_autorefresh
 
-# 1. הגדרות דף ורענון
+# 1. הגדרות דף ורענון אוטומטי (10 שניות)
 st.set_page_config(page_title="יומן המסחר של אבי", layout="wide")
-st_autorefresh(interval=10000, key="final_dynamic_cash_fix")
+st_autorefresh(interval=10000, key="broker_sync_fix")
 
-# 2. הגדרת נקודת ייחוס למזומן (נכון ל-28/01/2026)
-# זהו הסכום המדויק שהיה לך לפני הפעולות האחרונות
-CASH_REFERENCE = 8377.65 
+# 2. נתוני ייחוס מדויקים לפי הברוקר (נכון ל-06/05/2026)
+# עדכנתי את העוגן לפי הנתונים שסיפקת כדי לאפס את החישוב
+CASH_ANCHOR = 2429.45  
 PORTFOLIO_START_VAL = 44302.55 
 
 def get_fee(qty):
@@ -38,23 +38,19 @@ try:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     # --- חישוב מזומן דינמי ---
-    # אנחנו מחשבים את השינויים שקרו מאז שנקודת הייחוס (CASH_REFERENCE) הייתה נכונה
-    # החישוב כולל את הקנייה של APLD וכל פעולה עתידית שתכניס לגיליון
-    
-    # סינון פעולות חדשות (מה-29/01 ואילך)
-    new_activity = df[df['Entry_Date'] >= '2026-01-29']
-    new_exits = df[df['Exit_Date'] >= '2026-01-29']
+    # הקוד מחשב שינויים רק עבור טריידים חדשים שנוספו מהיום והלאה
+    # כדי לשמור על סנכרון עם ה-CASH_ANCHOR שסיפקת
+    new_activity = df[df['Entry_Date'] > '2026-05-06']
+    new_exits = df[df['Exit_Date'] > '2026-05-06']
     
     cash_spent = new_activity['עלות כניסה'].sum()
     cash_gained = new_exits['עלות יציאה'].sum()
-    
-    # חישוב עמלות לפעולות החדשות
     fees_new = new_activity['Qty'].apply(get_fee).sum() + new_exits['Qty'].apply(get_fee).sum()
     
     # המזומן המעודכן
-    dynamic_cash = CASH_REFERENCE - cash_spent + cash_gained - fees_new
+    dynamic_cash = CASH_ANCHOR - cash_spent + cash_gained - fees_new
 
-    # חישוב עמלות מצטברות לכל התיק (לתצוגה בלבד)
+    # עמלות מצטברות לכל התיק (לתצוגה)
     total_fees_ytd = df['Qty'].apply(get_fee).sum() + df[df['Exit_Price'] > 0]['Qty'].apply(get_fee).sum()
 
     # הפרדה לפוזיציות
@@ -72,8 +68,6 @@ try:
             data = yf.download(tickers, period="1d", progress=False)['Close']
             for _, row in summary.iterrows():
                 t = row['Ticker']
-                if row['Qty'] <= 0: continue
-                
                 try:
                     price = data[t].iloc[-1] if len(tickers) > 1 else data.iloc[-1]
                     val = price * row['Qty']
